@@ -1,4 +1,3 @@
-# Restormer
 diff --git a/README.md b/README.md
 index 2fd71e54e66570026acec18adabf27054740109d..73fb2b952c537c579bd83b373fe494c45187e52f 100644
 --- a/README.md
