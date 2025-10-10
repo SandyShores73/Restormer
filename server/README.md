@@ -23,8 +23,15 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create a `.env` file (optional) to override configuration values such as the
-JWT secret key or allowed CORS origins.
+Create a `.env` file (optional) to override configuration values. Useful keys
+for internet-facing deployments include:
+
+- `RESTORMER_SECRET_KEY` – JWT signing key.
+- `RESTORMER_ALLOWED_ORIGINS` – comma-separated list of browser origins (default
+  allows all).
+- `RESTORMER_PUBLIC_BASE_URL` – the HTTPS address clients should reach (for
+  example `https://denoise.example.com`).  When set, job responses include fully
+  qualified download URLs.
 
 ## Running the Server Locally
 
@@ -52,6 +59,10 @@ The first request triggers automatic downloads of the required ONNX models into
 ## Production Notes
 
 - Configure a reverse proxy (e.g. Nginx or Caddy) with HTTPS termination.
+- Expose the FastAPI service on port 8000 (or your chosen port) and ensure the
+  firewall forwards TCP traffic from the public internet to the host.
+- Set `RESTORMER_PUBLIC_BASE_URL` to the externally accessible hostname so the
+  API can generate absolute download links for the desktop client.
 - Set environment variables `RESTORMER_SECRET_KEY`, `GOOGLE_CLIENT_ID`, and
   `GOOGLE_CLIENT_SECRET` in production.
 - For persistent storage, use an external database (PostgreSQL) by updating the

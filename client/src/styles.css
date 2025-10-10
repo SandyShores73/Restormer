@@ -16,6 +16,16 @@ header {
   margin-bottom: 2rem;
 }
 
+header h1 {
+  margin-bottom: 0.5rem;
+}
+
+header .current-server {
+  font-size: 0.9rem;
+  color: #cbd5f5;
+  margin-top: 0.5rem;
+}
+
 .login-section,
 section {
   background: rgba(30, 41, 59, 0.85);
@@ -23,6 +33,40 @@ section {
   padding: 1.5rem;
   margin-bottom: 1.5rem;
   box-shadow: 0 10px 25px rgba(15, 23, 42, 0.6);
+}
+
+.helper-text {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin-top: 0.5rem;
+}
+
+.error-message {
+  color: #f87171;
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+.download-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.download-actions a {
+  color: #38bdf8;
+  font-weight: 600;
+  text-align: center;
+}
+
+.download-actions button {
+  margin-right: 0;
+}
+
+.empty-state {
+  text-align: center;
+  color: #94a3b8;
+  padding: 1rem 0;
 }
 
 .form-group {
@@ -93,7 +137,7 @@ tbody tr:hover {
   background: rgba(30, 64, 175, 0.2);
 }
 
-actions {
+.actions {
   display: flex;
   align-items: center;
   gap: 1rem;
