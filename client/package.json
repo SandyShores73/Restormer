@@ -1,5 +1,6 @@
 {
   "name": "restormer-remote-client",
+  "private": true,
   "version": "1.0.0",
   "description": "Cross-platform desktop client for the Restormer remote AI denoise service",
   "main": "electron/main.js",
@@ -48,5 +49,6 @@
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "eslint-plugin-react-refresh": "^0.4.5"
-  }
+  },
+  "packageManager": "npm@10.2.4"
 }

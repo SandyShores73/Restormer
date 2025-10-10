@@ -5,11 +5,18 @@ communicates with the Restormer Remote AI denoise server.
 
 ## Development
 
+From the repository root run:
+
 ```bash
 cd client
 npm install
 npm run dev
 ```
+
+> **Note:** If you previously attempted a merge that left conflict markers
+> (e.g. `<<<<<<< HEAD`) inside `package.json`, resolve them or reset the file
+> before running `npm install`.  You can restore the clean version with
+> `git checkout -- package.json`.
 
 By default the renderer points to `http://localhost:8000`.  Set
 `VITE_API_BASE=https://your-public-domain` before `npm run dev` to use a remote
