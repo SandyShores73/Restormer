@@ -4,12 +4,24 @@ module.exports = {
     browser: true,
     es2021: true
   },
-  extends: ["eslint:recommended", "plugin:react-hooks/recommended", "prettier"],
+  parser: "@typescript-eslint/parser",
   parserOptions: {
     ecmaVersion: "latest",
-    sourceType: "module"
+    sourceType: "module",
+    ecmaFeatures: {
+      jsx: true
+    }
   },
-  rules: {},
+  plugins: ["@typescript-eslint", "react-refresh"],
+  extends: [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:react-hooks/recommended",
+    "prettier"
+  ],
+  rules: {
+    "react-refresh/only-export-components": ["warn", { allowConstantExport: true }]
+  },
   ignorePatterns: ["dist", "electron/*.js"],
   settings: {
     react: {

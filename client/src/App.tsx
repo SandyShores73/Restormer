@@ -24,9 +24,14 @@ const App: React.FC = () => {
     setToken(null);
   }, [serverUrl]);
 
-  const jobsQuery = useQuery<JobResponse[]>({
+  const jobsQuery = useQuery<JobResponse[], Error>({
     queryKey: ["jobs", token, serverUrl],
-    queryFn: () => apiClient.fetchJobs(token!),
+    queryFn: () => {
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+      return apiClient.fetchJobs(token);
+    },
     enabled: Boolean(token && serverUrl)
   });
 
