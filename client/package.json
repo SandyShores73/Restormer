@@ -1,0 +1,54 @@
+{
+  "name": "restormer-remote-client",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cross-platform desktop client for the Restormer remote AI denoise service",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "start": "electron .",
+    "build": "vite build && electron-builder",
+    "build:renderer": "vite build",
+    "build:electron": "echo 'JS entry points used, skipping TS compile'",
+    "lint": "eslint \"src/**/*.{ts,tsx}\""
+  },
+  "build": {
+    "appId": "com.restormer.client",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.photography"
+    },
+    "win": {
+      "target": "nsis",
+      "publisherName": "Restormer"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.28.0",
+    "axios": "^1.6.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/react": "^18.2.21",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.2.1",
+    "cross-env": "^7.0.3",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.6.4",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint-plugin-react-refresh": "^0.4.5"
+  },
+  "packageManager": "npm@10.2.4"
+}
