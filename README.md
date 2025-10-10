@@ -1,8 +1,9 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
 diff --git a/README.md b/README.md
-index 2fd71e54e66570026acec18adabf27054740109d..73fb2b952c537c579bd83b373fe494c45187e52f 100644
+index 2fd71e54e66570026acec18adabf27054740109d..a74f0da216849b7eb1bfe04e64a53c3c94fbf18a 100644
 --- a/README.md
 +++ b/README.md
-@@ -1 +1,25 @@
+@@ -1 +1,27 @@
 -# Restormer
 +# Restormer Remote Suite
 +
@@ -29,3 +30,8 @@ index 2fd71e54e66570026acec18adabf27054740109d..73fb2b952c537c579bd83b373fe494c4
 +- Use HTTPS and secure password hashing in production environments.
 +- Maintain the allowed users list through the `/users` API endpoints or by
 +  seeding the SQLite database.
++- For Codex-based distribution workflows, see `docs/publish_via_codex.md` for
++  instructions on preparing installers and publishing releases.
+ 
+EOF
+)
