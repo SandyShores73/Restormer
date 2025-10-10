@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import AnyHttpUrl, BaseModel
 
 
 class JobCreate(BaseModel):
@@ -12,14 +12,13 @@ class JobCreate(BaseModel):
 class JobRead(BaseModel):
     id: int
     status: str
-    input_path: str
-    output_path: str | None
+    filename: str
     created_at: datetime
     updated_at: datetime
     error_message: str | None
-
-    class Config:
-        orm_mode = True
+    downloadable: bool
+    download_path: str | None = None
+    download_url: AnyHttpUrl | None = None
 
 
 class JobStatusUpdate(BaseModel):

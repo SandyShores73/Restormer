@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import List
+from urllib.parse import urljoin
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -29,6 +30,40 @@ async def _update_job(job: ProcessingJob) -> ProcessingJob:
         await session.commit()
         await session.refresh(job)
         return job
+
+
+def _extract_filename(path_str: str) -> str:
+    posix_name = Path(path_str).name
+    if posix_name and posix_name != path_str:
+        return posix_name
+    windows_name = PureWindowsPath(path_str).name
+    if windows_name and windows_name != path_str:
+        return windows_name
+    return path_str.split("/")[-1].split("\\")[-1]
+
+
+def _build_job_read(job: ProcessingJob) -> JobRead:
+    filename = _extract_filename(job.output_path or job.input_path)
+    downloadable = False
+    download_path: str | None = None
+    download_url: str | None = None
+    if job.status == "completed" and job.output_path and Path(job.output_path).exists():
+        downloadable = True
+        download_path = f"/jobs/{job.id}/download"
+        base_url = settings.normalised_public_base_url
+        if base_url:
+            download_url = urljoin(f"{base_url}/", download_path.lstrip("/"))
+    return JobRead(
+        id=job.id,
+        status=job.status,
+        filename=filename,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        error_message=job.error_message,
+        downloadable=downloadable,
+        download_path=download_path,
+        download_url=download_url,
+    )
 
 
 async def _process_job(job_id: int, input_path: Path, output_path: Path) -> None:
@@ -77,7 +112,7 @@ async def create_job(
         await session.refresh(job)
 
     background_tasks.add_task(_process_job, job.id, destination, output_path)
-    return JobRead.from_orm(job)
+    return _build_job_read(job)
 
 
 @router.get("/", response_model=List[JobRead])
@@ -87,7 +122,7 @@ async def list_jobs(current_user: UserRead = Depends(get_current_active_user)) -
             select(ProcessingJob).where(ProcessingJob.user_id == current_user.id)
         )
         jobs = result.all()
-    return [JobRead.from_orm(job) for job in jobs]
+    return [_build_job_read(job) for job in jobs]
 
 
 @router.get("/{job_id}", response_model=JobRead)
@@ -96,7 +131,7 @@ async def get_job(job_id: int, current_user: UserRead = Depends(get_current_acti
         job = await session.get(ProcessingJob, job_id)
         if not job or job.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Job not found")
-    return JobRead.from_orm(job)
+    return _build_job_read(job)
 
 
 @router.get("/{job_id}/download")

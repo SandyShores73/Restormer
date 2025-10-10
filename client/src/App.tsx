@@ -1,31 +1,47 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { downloadProcessedImage, fetchJobs, loginWithPassword, loginWithGoogle, uploadJob } from "./api";
+import { createApiClient, JobResponse } from "./api";
 
 const App: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [googleToken, setGoogleToken] = useState("");
+  const defaultServerUrl = (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
+  const [serverUrl, setServerUrl] = useState<string>(() => {
+    return localStorage.getItem("restormer.serverUrl") ?? defaultServerUrl;
+  });
+  const [serverUrlInput, setServerUrlInput] = useState(serverUrl);
+  const [serverUrlError, setServerUrlError] = useState<string | null>(null);
 
-  const jobsQuery = useQuery({
-    queryKey: ["jobs", token],
-    queryFn: () => fetchJobs(token!),
-    enabled: Boolean(token)
+  const apiClient = useMemo(() => createApiClient(serverUrl), [serverUrl]);
+
+  useEffect(() => {
+    localStorage.setItem("restormer.serverUrl", serverUrl);
+  }, [serverUrl]);
+
+  useEffect(() => {
+    setToken(null);
+  }, [serverUrl]);
+
+  const jobsQuery = useQuery<JobResponse[]>({
+    queryKey: ["jobs", token, serverUrl],
+    queryFn: () => apiClient.fetchJobs(token!),
+    enabled: Boolean(token && serverUrl)
   });
 
   const loginMutation = useMutation({
-    mutationFn: () => loginWithPassword(email, password),
+    mutationFn: () => apiClient.loginWithPassword(email, password),
     onSuccess: (response) => setToken(response.access_token)
   });
 
   const googleMutation = useMutation({
-    mutationFn: () => loginWithGoogle(googleToken),
+    mutationFn: () => apiClient.loginWithGoogle(googleToken),
     onSuccess: (response) => setToken(response.access_token)
   });
 
   const uploadMutation = useMutation({
-    mutationFn: uploadJob,
+    mutationFn: apiClient.uploadJob,
     onSuccess: () => jobsQuery.refetch()
   });
 
@@ -48,7 +64,25 @@ const App: React.FC = () => {
 
   const handleDownload = async (jobId: number) => {
     if (!token) return;
-    await downloadProcessedImage(token, jobId);
+    await apiClient.downloadProcessedImage(token, jobId);
+  };
+
+  const handleSaveServerUrl = () => {
+    try {
+      const nextUrl = serverUrlInput.trim();
+      if (!nextUrl) {
+        throw new Error("Server URL is required");
+      }
+      // Validate URL format; URL constructor throws on invalid values.
+      // eslint-disable-next-line no-new
+      new URL(nextUrl);
+      const sanitisedUrl = nextUrl.replace(/\s+/g, "");
+      setServerUrl(sanitisedUrl);
+      setServerUrlInput(sanitisedUrl);
+      setServerUrlError(null);
+    } catch (error) {
+      setServerUrlError(error instanceof Error ? error.message : "Invalid URL");
+    }
   };
 
   return (
@@ -56,7 +90,23 @@ const App: React.FC = () => {
       <header>
         <h1>Restormer Remote</h1>
         <p>GPU accelerated denoise, detail refinement, and focus restoration.</p>
+        <p className="current-server">Server: {serverUrl}</p>
       </header>
+
+      <section className="server-section">
+        <h2>Server Connection</h2>
+        <div className="form-group">
+          <label>Public Server URL</label>
+          <input
+            value={serverUrlInput}
+            onChange={(e) => setServerUrlInput(e.target.value)}
+            placeholder="https://your-domain.example"
+          />
+        </div>
+        <button onClick={handleSaveServerUrl}>Save Server URL</button>
+        {serverUrlError && <p className="error-message">{serverUrlError}</p>}
+        <p className="helper-text">Use the HTTPS address that is reachable from the public web.</p>
+      </section>
 
       <section className="login-section">
         <div className="form-group">
@@ -91,6 +141,11 @@ const App: React.FC = () => {
             </button>
           </div>
           <h2>Jobs</h2>
+          {jobsQuery.isError && (
+            <p className="error-message">
+              Unable to load jobs: {jobsQuery.error instanceof Error ? jobsQuery.error.message : "Unknown error"}
+            </p>
+          )}
           {jobsQuery.isLoading ? (
             <p>Loading jobs...</p>
           ) : (
@@ -99,18 +154,32 @@ const App: React.FC = () => {
                 <tr>
                   <th>ID</th>
                   <th>Status</th>
-                  <th>Output</th>
+                  <th>Filename</th>
+                  <th>Download</th>
                   <th>Error</th>
                 </tr>
               </thead>
               <tbody>
+                {jobsQuery.data && jobsQuery.data.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="empty-state">No jobs yet.</td>
+                  </tr>
+                )}
                 {jobsQuery.data?.map((job) => (
                   <tr key={job.id}>
                     <td>{job.id}</td>
                     <td>{job.status}</td>
+                    <td>{job.filename}</td>
                     <td>
-                      {job.output_path ? (
-                        <button onClick={() => handleDownload(job.id)}>Download</button>
+                      {job.downloadable ? (
+                        <div className="download-actions">
+                          <button onClick={() => handleDownload(job.id)}>Download</button>
+                          {job.download_url && (
+                            <a href={job.download_url} target="_blank" rel="noreferrer">
+                              Open Link
+                            </a>
+                          )}
+                        </div>
                       ) : (
                         "-"
                       )}

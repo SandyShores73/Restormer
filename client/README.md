@@ -11,8 +11,11 @@ npm install
 npm run dev
 ```
 
-The dev server expects the FastAPI backend to be running at
-`http://localhost:8000`.  Override by setting `VITE_API_BASE` before running Vite.
+By default the renderer points to `http://localhost:8000`.  Set
+`VITE_API_BASE=https://your-public-domain` before `npm run dev` to use a remote
+server.  Inside the app, open the **Server Connection** panel to store any
+publicly reachable base URL—the value is persisted locally so packaged builds
+can connect to your production endpoint without recompilation.
 
 ## Production Builds
 
