@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -10,3 +11,26 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+=======
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a//dev/null b/client/index.html
+index 0000000000000000000000000000000000000000..325b316b7530f0d2f6ae0b8cd44ca9f440cd4a2c 100644
+--- a//dev/null
++++ b/client/index.html
+@@ -0,0 +1,12 @@
++<!DOCTYPE html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>Restormer Remote Client</title>
++  </head>
++  <body>
++    <div id="root"></div>
++    <script type="module" src="/src/main.tsx"></script>
++  </body>
++</html>
+ 
+EOF
+)
+>>>>>>> origin/main
