@@ -23,3 +23,5 @@ and Windows.
 - Use HTTPS and secure password hashing in production environments.
 - Maintain the allowed users list through the `/users` API endpoints or by
   seeding the SQLite database.
+- For Codex-based distribution workflows, see `docs/publish_via_codex.md` for
+  instructions on preparing installers and publishing releases.
