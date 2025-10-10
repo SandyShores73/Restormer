@@ -12,7 +12,7 @@ and a Radeon RX 7800 XT discrete GPU.
 - Asynchronous pipeline that chains Restormer (denoise), Real-ESRGAN (detail
   enhancement), and NAFNet Deblur (focus correction) models.
 - Automatic model caching and DirectML execution provider selection to leverage
-  AMD GPUs on Windows.
+  AMD GPUs on Windows, with CPU fallbacks on other platforms.
 - SQLite database (via SQLModel) for user and job persistence.
 
 ## Environment Setup

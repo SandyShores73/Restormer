@@ -6,7 +6,8 @@ python-multipart==0.0.9
 passlib[bcrypt]==1.7.4
 python-jose==3.3.0
 httpx==0.26.0
-onnxruntime-directml==1.17.1
+onnxruntime-directml==1.17.1; platform_system == "Windows"
+onnxruntime==1.17.1; platform_system != "Windows"
 pillow==10.2.0
 numpy==1.26.4
 google-auth==2.27.0

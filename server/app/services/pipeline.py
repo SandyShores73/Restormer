@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 import onnxruntime as ort
 from PIL import Image
-import numpy as np
 
 from ..core.config import settings
 from ..utils.download import download_file
@@ -45,6 +46,7 @@ class InferencePipeline:
 
     def __init__(self) -> None:
         self.sessions: dict[str, ort.InferenceSession] = {}
+        self._logger = logging.getLogger(__name__)
 
     async def load_models(self) -> None:
         for spec in (RESTORMER_SPEC, REAL_ESRGAN_SPEC, DEBLUR_SPEC):
@@ -54,10 +56,11 @@ class InferencePipeline:
         model_path = Path(settings.models_dir) / spec.filename
         if not model_path.exists():
             await download_file(spec.url, model_path)
+        providers, provider_options = self._select_providers(spec)
         session = ort.InferenceSession(
             str(model_path),
-            providers=list(spec.providers),
-            provider_options=[{"device_id": 0}, {}],
+            providers=providers,
+            provider_options=provider_options,
         )
         self.sessions[spec.name] = session
 
@@ -86,6 +89,33 @@ class InferencePipeline:
         input_name = session.get_inputs()[0].name
         outputs = session.run(None, {input_name: array})
         return outputs[0]
+
+    def _select_providers(self, spec: ModelSpec) -> tuple[list[str], list[dict]]:
+        """Resolve compatible execution providers for the current environment."""
+
+        available = set(ort.get_available_providers())
+        requested = list(spec.providers)
+        providers: list[str] = [provider for provider in requested if provider in available]
+
+        if not providers:
+            providers = ["CPUExecutionProvider"]
+
+        if providers != requested:
+            self._logger.info(
+                "Using providers %s for model '%s' (available=%s)",
+                providers,
+                spec.name,
+                sorted(available),
+            )
+
+        provider_options: list[dict] = []
+        for provider in providers:
+            if provider == "DmlExecutionProvider":
+                provider_options.append({"device_id": 0})
+            else:
+                provider_options.append({})
+
+        return providers, provider_options
 
 
 pipeline = InferencePipeline()
