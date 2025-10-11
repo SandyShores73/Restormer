@@ -1,3 +1,14 @@
+<<<<<<< HEAD
+export {}; // ensure treated as module
+
+declare global {
+  interface Window {
+    electronAPI: {
+      openFile: () => Promise<{ filePath: string; buffer: string } | null>;
+    };
+  }
+}
+=======
  (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
 diff --git a//dev/null b/client/src/global.d.ts
 index 0000000000000000000000000000000000000000..16e03b0ee58c7b0718581cb7b25216ce677dd2d5 100644
@@ -16,3 +27,4 @@ index 0000000000000000000000000000000000000000..16e03b0ee58c7b0718581cb7b25216ce
  
 EOF
 )
+>>>>>>> origin/main
