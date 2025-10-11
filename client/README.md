@@ -13,6 +13,15 @@ npm install
 npm run dev
 ```
 
+> **Disk space requirements (macOS):** Installing the Electron runtime pulls
+> down archives that temporarily consume ~2–3 GB. If `npm install` aborts with
+> `ENOSPC: no space left on device` (or any error that prevents dependencies
+> from being written to `node_modules`), free additional disk space, delete the
+> partially created `client/node_modules` folder, and rerun `npm install`. Any
+> subsequent `cross-env: command not found` messages are a side effect of the
+> failed install—once the dependency install succeeds, `cross-env` will be
+> available to `npm run dev`.
+
 > **Note:** If you previously attempted a merge that left conflict markers
 > (e.g. `<<<<<<< HEAD`) inside `package.json`, resolve them or reset the file
 > before running `npm install`.  You can restore the clean version with
