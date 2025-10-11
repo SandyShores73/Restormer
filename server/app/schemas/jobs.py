@@ -7,6 +7,8 @@ from pydantic import AnyHttpUrl, BaseModel
 
 class JobCreate(BaseModel):
     filename: str
+    mode: str = "denoise"
+    passes: int = 1
 
 
 class JobRead(BaseModel):
@@ -14,6 +16,12 @@ class JobRead(BaseModel):
     status: str
     stage: str
     filename: str
+    mode: str
+    mode_label: str
+    passes: int
+    file_count: int
+    input_files: list[str]
+    output_files: list[str]
     created_at: datetime
     updated_at: datetime
     error_message: str | None

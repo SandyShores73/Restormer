@@ -197,6 +197,27 @@ input:focus {
   color: rgba(236, 239, 255, 0.6);
 }
 
+.field.compact {
+  flex: 1 1 220px;
+  max-width: 280px;
+}
+
+.field.compact select {
+  background: rgba(15, 22, 40, 0.7);
+  border: 1px solid rgba(114, 128, 255, 0.3);
+  border-radius: 14px;
+  color: #f4f6ff;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  backdrop-filter: blur(14px);
+}
+
+.field.compact select:focus {
+  outline: none;
+  border-color: rgba(140, 160, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(124, 154, 255, 0.2);
+}
+
 .error-banner {
   margin: 0;
   padding: 0.85rem 1.1rem;
@@ -220,6 +241,22 @@ input:focus {
 .helper-text {
   font-size: 0.85rem;
   color: rgba(236, 239, 255, 0.55);
+}
+
+.helper-text.emphasis {
+  color: rgba(210, 232, 255, 0.85);
+  font-weight: 500;
+  margin-top: 0.6rem;
+}
+
+.warning-banner {
+  margin: 0.4rem 0 0;
+  padding: 0.7rem 1rem;
+  border-radius: 14px;
+  background: rgba(255, 196, 105, 0.16);
+  border: 1px solid rgba(255, 196, 105, 0.35);
+  color: #ffeacf;
+  font-size: 0.9rem;
 }
 
 .tabs {
@@ -316,6 +353,13 @@ input:focus {
 .fetch-indicator {
   font-size: 0.85rem;
   color: rgba(236, 239, 255, 0.6);
+}
+
+.mode-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
 }
 
 .actions {
@@ -493,6 +537,54 @@ tbody tr:hover {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
+}
+
+.job-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.meta-label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(236, 239, 255, 0.55);
+}
+
+.meta-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: rgba(244, 247, 255, 0.92);
+}
+
+.job-files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.job-files-grid h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(236, 239, 255, 0.65);
+}
+
+.job-files-grid ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.job-files-grid li {
+  color: rgba(236, 239, 255, 0.85);
+  font-size: 0.9rem;
+  word-break: break-word;
 }
 
 .debug-list {

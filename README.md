@@ -8,9 +8,10 @@ and Windows.
 
 ## Structure
 
-- `server/` – FastAPI application with DirectML-accelerated ONNX inference,
+- `server/` – FastAPI application with DirectML-accelerated Restormer inference,
   SQLite persistence, JWT authentication, whitelist enforcement, live job
-  progress, and an embedded diagnostics dashboard.
+  progress, macOS/Windows packaging scripts, and an embedded diagnostics
+  dashboard.
 - `client/` – Electron + React desktop client packaged as `.dmg` (macOS) and
   `.exe` (Windows) via electron-builder.
 

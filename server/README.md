@@ -12,8 +12,8 @@ and a Radeon RX 7800 XT discrete GPU.
   desktop onboarding flow.
 - REST endpoints for image upload, job tracking (with progress + stage data),
   and result retrieval.
-- Asynchronous pipeline that chains Restormer (denoise), Real-ESRGAN (detail
-  enhancement), and NAFNet Deblur (focus correction) models.
+- Asynchronous pipeline that batches Restormer denoising, motion-deblur, and
+  defocus-deblur ONNX models with configurable multi-pass refinement.
 - Automatic model caching and DirectML execution provider selection to leverage
   AMD GPUs on Windows, with CPU fallbacks on other platforms.
 - Built-in `/dashboard` single-page GUI for live diagnostics, and a
@@ -55,6 +55,16 @@ The service also initialises (or auto-migrates) database columns for
 `progress`, `stage`, and `debug_log` so existing installations gain the richer
 telemetry required by the new desktop dashboards.
 
+## Batch Processing & Model Selection
+
+- Each job can include up to 25 source images. The pipeline processes them in
+  sequence, applying the chosen Restormer variant for the configured number of
+  passes (1x–5x).
+- Outputs are written to an archive (`restormer_outputs.zip`) alongside a
+  manifest of generated filenames so the client can present per-image status.
+- Job progress reflects batch advancement and pass completion, ensuring desktop
+  telemetry stays in sync with long-running multi-image submissions.
+
 ## Managing the whitelist
 
 Create whitelist entries by inserting rows into the `alloweduser` table. For a
@@ -93,6 +103,18 @@ administrators visibility into active invitations.
    ```
 3. Use the provided `installer/innosetup.iss` script to build a GUI installer
    with Inno Setup (script included under `server/installer`).
+
+## macOS Application Bundle
+
+- Run `installer/macos_installer.sh` (optionally pass a destination directory)
+  to generate a `RestormerServer.app` bundle. The script copies the backend
+  sources into the bundle, provisions a launch script, and stores shared state
+  under `~/Library/Application Support/RestormerServer`.
+- On first launch the app bootstraps a Python virtual environment, installs
+  `requirements.txt`, pre-downloads all Restormer ONNX models, and then starts
+  `uvicorn` bound to `0.0.0.0:8000`.
+- Subsequent launches reuse the cached environment and simply restart the
+  service while tailing logs to `~/Library/Application Support/RestormerServer/logs/restormer-server.log`.
 
 ## Production Notes
 

@@ -47,15 +47,17 @@ app.on("activate", async () => {
   }
 });
 
-ipcMain.handle("dialog:openFile", async () => {
+ipcMain.handle("dialog:openFiles", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ["openFile"],
-    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "tiff"] }]
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "tiff", "tif"] }]
   });
   if (canceled || filePaths.length === 0) {
-    return null;
+    return [];
   }
-  const filePath = filePaths[0];
-  const buffer = fs.readFileSync(filePath);
-  return { filePath, buffer: buffer.toString("base64") };
+  const selected = filePaths.slice(0, 25);
+  return selected.map((filePath) => {
+    const buffer = fs.readFileSync(filePath);
+    return { filePath, buffer: buffer.toString("base64") };
+  });
 });

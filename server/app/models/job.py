@@ -14,6 +14,19 @@ class ProcessingJob(SQLModel, table=True):
     stage: str = Field(default="queued", index=True)
     input_path: str
     output_path: str | None = None
+    input_manifest: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="JSON manifest describing uploaded files.",
+    )
+    output_manifest: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="JSON manifest describing generated files.",
+    )
+    mode: str = Field(default="denoise", index=True)
+    passes: int = Field(default=1, ge=1, le=5)
+    file_count: int = Field(default=1)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     error_message: str | None = None

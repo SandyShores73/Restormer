@@ -7,8 +7,9 @@ The refreshed client ships with an Apple-inspired adaptive UI, animated
 loading screen, GPU job progress visualisations, live debugging console, and a
 first-run onboarding flow that validates a user-selected username/password
 against the server whitelist before enabling access. Every stage of the
-Restormer → Real-ESRGAN → NAFNet pipeline emits progress percentages so the
-macOS and Windows builds never appear “stuck” on a blank screen.
+Restormer batch pipeline (model caching, per-pass inference, archiving) emits
+progress percentages so the macOS and Windows builds never appear “stuck” on a
+blank screen.
 
 ## Development
 
@@ -62,6 +63,9 @@ can connect to your production endpoint without recompilation.
 - **Upload progress & refetch cues** – file uploads emit realtime percentages
   and the dashboard shows when the client is refreshing job telemetry, making
   long GPU runs predictable.
+- **Restormer mode matrix & bulk batching** – choose between denoising, motion
+  deblur, or defocus correction, control 1x–5x passes, and queue up to 25
+  images in a single batch with automatic archive downloads.
 
 ## Production Builds
 

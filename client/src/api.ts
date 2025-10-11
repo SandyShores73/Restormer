@@ -10,6 +10,12 @@ export interface JobResponse {
   status: string;
   stage: string;
   filename: string;
+  mode: string;
+  mode_label: string;
+  passes: number;
+  file_count: number;
+  input_files: string[];
+  output_files: string[];
   created_at: string;
   updated_at: string;
   error_message: string | null;

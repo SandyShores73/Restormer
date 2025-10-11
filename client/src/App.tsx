@@ -13,6 +13,7 @@ const defaultServerUrl =
 
 type AppPhase = "splash" | "configureServer" | "onboard" | "dashboard";
 type OnboardingMode = "new" | "returning";
+type RestormerMode = "denoise" | "motion_deblur" | "defocus_deblur";
 
 type LoadingState = {
   message: string;
@@ -42,14 +43,34 @@ const stageDescriptions: Record<string, string> = {
   queued: "Awaiting GPU availability",
   initialising: "Preparing inference graph",
   preparing: "Loading the source frame",
-  "loading_models": "Fetching accelerated weights",
-  denoise: "Denoising with Restormer",
-  enhance: "Enhancing details via Real-ESRGAN",
-  refocus: "Rebuilding focus with NAFNet",
-  saving: "Writing the refined image",
+  loading_models: "Fetching Restormer weights",
+  batch_prepare: "Decoding batch imagery",
+  restormer_pass: "Executing Restormer inference",
+  saving: "Writing processed imagery",
+  archiving: "Packaging download archive",
   completed: "Job finished successfully",
   failed: "Job halted due to an error"
 };
+
+const restormerOptions: Array<{ value: RestormerMode; label: string; description: string }> = [
+  {
+    value: "denoise",
+    label: "Restormer Denoising",
+    description: "Suppress sensor noise while preserving crisp texture."
+  },
+  {
+    value: "motion_deblur",
+    label: "Restormer Motion Deblurring",
+    description: "Stabilise handheld or action shots affected by motion."
+  },
+  {
+    value: "defocus_deblur",
+    label: "Restormer Defocus Deblurring",
+    description: "Recover optical focus lost to shallow depth of field."
+  }
+];
+
+const passOptions = [1, 2, 3, 4, 5] as const;
 
 const illustrationMap: Record<string, string> = {
   queued: "radial-amber",
@@ -60,6 +81,15 @@ const illustrationMap: Record<string, string> = {
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const formatPercent = (value: number) => `${Math.round(clamp(value) * 100)}%`;
+
+const base64ToBlob = (value: string) => {
+  const byteCharacters = atob(value);
+  const byteNumbers = new Array(byteCharacters.length)
+    .fill(0)
+    .map((_, idx) => byteCharacters.charCodeAt(idx));
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray.buffer]);
+};
 
 const getStoredValue = (key: string): string | null => {
   try {
@@ -162,6 +192,10 @@ const App: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState("");
 
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedMode, setSelectedMode] = useState<RestormerMode>("denoise");
+  const [selectedPasses, setSelectedPasses] = useState<number>(1);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
   const apiClient = useMemo(() => createApiClient(serverUrl), [serverUrl]);
@@ -290,32 +324,46 @@ const App: React.FC = () => {
     },
     onSuccess: () => {
       setUploadProgress(1);
+      setUploadWarning(null);
+      setUploadMessage("Upload complete. Monitoring job queue…");
       void jobsQuery.refetch();
       setTimeout(() => setUploadProgress(0), 700);
     },
     onError: (error: unknown) => {
       console.error(error);
+      const message = error instanceof Error ? error.message : "Upload failed";
+      setUploadWarning(message);
       setUploadProgress(0);
     }
   });
 
-  const handleSelectFile = async () => {
+  const handleSelectFiles = async () => {
     if (uploadMutation.isPending || !token) {
       return;
     }
-    const file = await window.electronAPI.openFile();
-    if (!file) {
+    const files = await window.electronAPI.openFiles();
+    if (!files || files.length === 0) {
       return;
     }
-    const byteCharacters = atob(file.buffer);
-    const byteNumbers = new Array(byteCharacters.length)
-      .fill(0)
-      .map((_, idx) => byteCharacters.charCodeAt(idx));
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray.buffer]);
-    const filename = file.filePath.split(/\\/).pop() ?? "upload.png";
+    const trimmed = files.slice(0, 25);
+    if (files.length > trimmed.length) {
+      setUploadWarning("Only the first 25 images will be queued per batch.");
+    } else {
+      setUploadWarning(null);
+    }
+    const option = restormerOptions.find((item) => item.value === selectedMode);
+    const label = option?.label ?? selectedMode;
+    setUploadMessage(
+      `Uploading ${trimmed.length} image${trimmed.length === 1 ? "" : "s"} with ${label} · ${selectedPasses}x passes.`
+    );
     const formData = new FormData();
-    formData.append("file", blob, filename);
+    formData.append("mode", selectedMode);
+    formData.append("passes", String(selectedPasses));
+    trimmed.forEach((file, index) => {
+      const blob = base64ToBlob(file.buffer);
+      const filename = file.filePath.split(/[\\/]/).pop() ?? `upload-${index}.png`;
+      formData.append("files", blob, filename);
+    });
     await uploadMutation.mutateAsync(formData);
   };
 
@@ -619,9 +667,40 @@ const App: React.FC = () => {
             </div>
             <ImageCue status="processing" />
           </header>
+          <div className="mode-controls">
+            <label className="field compact">
+              <span>Restormer function</span>
+              <select
+                value={selectedMode}
+                onChange={(event) => setSelectedMode(event.target.value as RestormerMode)}
+              >
+                {restormerOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field compact">
+              <span>Passes</span>
+              <select
+                value={selectedPasses}
+                onChange={(event) => setSelectedPasses(Number(event.target.value) || 1)}
+              >
+                {passOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}x
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="helper-text">
+            {restormerOptions.find((option) => option.value === selectedMode)?.description}
+          </p>
           <div className="actions">
-            <button type="button" onClick={handleSelectFile} disabled={uploadMutation.isPending || !token}>
-              {uploadMutation.isPending ? "Uploading…" : "Select file & upload"}
+            <button type="button" onClick={handleSelectFiles} disabled={uploadMutation.isPending || !token}>
+              {uploadMutation.isPending ? "Uploading…" : "Select files & upload"}
             </button>
             <button type="button" className="secondary" onClick={() => jobsQuery.refetch()}>
               Refresh jobs
@@ -631,6 +710,8 @@ const App: React.FC = () => {
             <div className="progress-fill" style={{ width: formatPercent(uploadProgress) }} />
           </div>
           <span className="progress-label">{uploadMutation.isPending ? formatPercent(uploadProgress) : "Idle"}</span>
+          {uploadMessage && <p className="helper-text emphasis">{uploadMessage}</p>}
+          {uploadWarning && <p className="warning-banner">{uploadWarning}</p>}
           {jobsQuery.isFetching && <span className="fetch-indicator">Syncing job telemetry…</span>}
         </article>
 
@@ -660,7 +741,7 @@ const App: React.FC = () => {
           <header>
             <div>
               <h2>Job timeline</h2>
-              <p className="card-subtitle">Monitor denoise, detail, and focus passes with visual cues.</p>
+              <p className="card-subtitle">Monitor Restormer batches with live telemetry.</p>
             </div>
             <ImageCue status="queued" />
           </header>
@@ -678,6 +759,9 @@ const App: React.FC = () => {
                     <th>ID</th>
                     <th>Status</th>
                     <th>Stage</th>
+                    <th>Function</th>
+                    <th>Passes</th>
+                    <th>Images</th>
                     <th>Progress</th>
                     <th>Filename</th>
                     <th>Download</th>
@@ -686,7 +770,7 @@ const App: React.FC = () => {
                 <tbody>
                   {jobsQuery.data && jobsQuery.data.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="empty-state">
+                      <td colSpan={9} className="empty-state">
                         No jobs yet — upload imagery to kick off the pipeline.
                       </td>
                     </tr>
@@ -709,6 +793,9 @@ const App: React.FC = () => {
                         <td>
                           <span className="stage-label">{stageDescriptions[job.stage] ?? job.stage}</span>
                         </td>
+                        <td>{job.mode_label}</td>
+                        <td>{job.passes}x</td>
+                        <td>{job.file_count}</td>
                         <td className="progress-cell">
                           <div className="progress-track subtle">
                             <div className="progress-fill" style={{ width: formatPercent(job.progress) }} />
@@ -752,19 +839,59 @@ const App: React.FC = () => {
             <ImageCue status={selectedJob?.status ?? "processing"} />
           </header>
           {selectedJob ? (
-            <div className="job-detail">
-              <h3>
-                Job #{selectedJob.id} · {stageDescriptions[selectedJob.stage] ?? selectedJob.stage}
-              </h3>
-              <div className="progress-track subtle">
-                <div className="progress-fill" style={{ width: formatPercent(selectedJob.progress) }} />
-              </div>
-              <span className="progress-label">{formatPercent(selectedJob.progress)}</span>
-              {selectedJob.error_message && <p className="error-banner">{selectedJob.error_message}</p>}
-              <ul className="debug-list">
-                {selectedJob.debug_lines.map((line, index) => (
-                  <li key={`${selectedJob.id}-${index}-${line}`}>{line}</li>
-                ))}
+              <div className="job-detail">
+                <h3>
+                  Job #{selectedJob.id} · {stageDescriptions[selectedJob.stage] ?? selectedJob.stage}
+                </h3>
+                <div className="progress-track subtle">
+                  <div className="progress-fill" style={{ width: formatPercent(selectedJob.progress) }} />
+                </div>
+                <span className="progress-label">{formatPercent(selectedJob.progress)}</span>
+                <div className="job-meta-grid">
+                  <div>
+                    <span className="meta-label">Function</span>
+                    <span className="meta-value">{selectedJob.mode_label}</span>
+                  </div>
+                  <div>
+                    <span className="meta-label">Passes</span>
+                    <span className="meta-value">{selectedJob.passes}×</span>
+                  </div>
+                  <div>
+                    <span className="meta-label">Images</span>
+                    <span className="meta-value">{selectedJob.file_count}</span>
+                  </div>
+                </div>
+                <div className="job-files-grid">
+                  <div>
+                    <h4>Input files</h4>
+                    {selectedJob.input_files.length === 0 ? (
+                      <p className="muted">Files pending upload.</p>
+                    ) : (
+                      <ul>
+                        {selectedJob.input_files.map((name) => (
+                          <li key={`input-${selectedJob.id}-${name}`}>{name}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <h4>Output files</h4>
+                    {selectedJob.output_files.length === 0 ? (
+                      <p className="muted">Outputs become available once the batch finishes.</p>
+                    ) : (
+                      <ul>
+                        {selectedJob.output_files.map((name) => (
+                          <li key={`output-${selectedJob.id}-${name}`}>{name}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                {selectedJob.error_message && <p className="error-banner">{selectedJob.error_message}</p>}
+                <ul className="debug-list">
+                  {selectedJob.debug_lines.map((line, index) => (
+                    <li key={`${selectedJob.id}-${index}-${line}`}>{line}</li>
+                  ))}
               </ul>
             </div>
           ) : (
