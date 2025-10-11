@@ -1,0 +1,303 @@
+:root {
+  color-scheme: dark;
+  font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #05060a;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, rgba(73, 116, 255, 0.25), transparent 60%),
+    radial-gradient(circle at 20% 20%, rgba(96, 214, 255, 0.2), transparent 55%), #05060a;
+  color: #f4f7ff;
+}
+
+.hero-gradient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(86, 104, 255, 0.35), rgba(200, 111, 255, 0.2));
+  opacity: 0.5;
+  filter: blur(140px);
+}
+
+.dashboard-shell {
+  position: relative;
+  padding: 4rem clamp(2rem, 5vw, 6rem);
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 3vw, 3.2rem);
+  letter-spacing: -0.02em;
+}
+
+.dashboard-header p {
+  margin: 0.35rem 0 0;
+  color: rgba(236, 239, 255, 0.7);
+  max-width: 44rem;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1.2rem;
+  border-radius: 999px;
+  background: rgba(67, 161, 255, 0.16);
+  border: 1px solid rgba(115, 179, 255, 0.35);
+  font-weight: 500;
+  backdrop-filter: blur(16px);
+}
+
+.status-chip::before {
+  content: "";
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #4ef289;
+  box-shadow: 0 0 12px rgba(78, 242, 137, 0.65);
+}
+
+.status-chip.status-chip--error {
+  background: rgba(255, 121, 121, 0.18);
+  border-color: rgba(255, 167, 167, 0.35);
+}
+
+.status-chip.status-chip--error::before {
+  background: #ff6b7a;
+  box-shadow: 0 0 12px rgba(255, 107, 122, 0.7);
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.card {
+  position: relative;
+  padding: 1.75rem;
+  border-radius: 28px;
+  background: rgba(15, 17, 28, 0.82);
+  border: 1px solid rgba(118, 140, 255, 0.08);
+  box-shadow: 0 30px 80px rgba(10, 14, 31, 0.35);
+  backdrop-filter: blur(22px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.card header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.card--wide {
+  grid-column: 1 / -1;
+}
+
+.environment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.environment-item {
+  padding: 1rem;
+  border-radius: 20px;
+  background: rgba(22, 24, 40, 0.9);
+  border: 1px solid rgba(118, 140, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.environment-item span {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.environment-item strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.refresh-button,
+button[type="submit"] {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.65rem 1.4rem;
+  font-weight: 600;
+  background: linear-gradient(120deg, #5b8cff, #8e6bff);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 14px 30px rgba(69, 111, 255, 0.36);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.refresh-button:hover,
+button[type="submit"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(69, 111, 255, 0.45);
+}
+
+.metric {
+  font-size: clamp(2.4rem, 5vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.metric-subtitle {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.progress-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.progress-bar {
+  height: 0.5rem;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, #63f8c8, #519dff);
+  transition: width 0.6s ease;
+}
+
+.status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.status-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 14px;
+  background: rgba(22, 24, 40, 0.9);
+  border: 1px solid rgba(118, 140, 255, 0.1);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+th,
+td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(118, 140, 255, 0.12);
+}
+
+tbody tr:hover {
+  background: rgba(118, 140, 255, 0.1);
+}
+
+.progress-cell {
+  min-width: 160px;
+}
+
+.progress-cell .progress-bar {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.form-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.form-inline label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.form-inline input {
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 140, 255, 0.22);
+  background: rgba(12, 14, 26, 0.8);
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.help-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(236, 239, 255, 0.6);
+}
+
+@media (max-width: 768px) {
+  .dashboard-shell {
+    padding: 2.5rem 1.5rem;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

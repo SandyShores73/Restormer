@@ -4,7 +4,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Awaitable, Callable, Iterable, Optional
 
 import numpy as np
 import onnxruntime as ort
@@ -41,6 +41,9 @@ DEBLUR_SPEC = ModelSpec(
 )
 
 
+ProgressCallback = Callable[[str, float, str], Awaitable[None]]
+
+
 class InferencePipeline:
     """Coordinates denoising, upscaling, and deblurring passes."""
 
@@ -48,9 +51,31 @@ class InferencePipeline:
         self.sessions: dict[str, ort.InferenceSession] = {}
         self._logger = logging.getLogger(__name__)
 
-    async def load_models(self) -> None:
+    def describe_environment(self) -> dict[str, object]:
+        available = sorted(ort.get_available_providers())
+        cached_models = []
         for spec in (RESTORMER_SPEC, REAL_ESRGAN_SPEC, DEBLUR_SPEC):
+            model_path = Path(settings.models_dir) / spec.filename
+            if model_path.exists():
+                cached_models.append(spec.filename)
+        return {
+            "available_providers": available,
+            "loaded_sessions": sorted(self.sessions.keys()),
+            "cached_models": cached_models,
+            "models_directory": str(settings.models_dir),
+        }
+
+    async def load_models(self, progress_callback: Optional[ProgressCallback] = None) -> None:
+        for index, spec in enumerate((RESTORMER_SPEC, REAL_ESRGAN_SPEC, DEBLUR_SPEC)):
+            if progress_callback:
+                await progress_callback(
+                    "loading_models",
+                    0.1 + index * 0.05,
+                    f"Preparing {spec.name.replace('_', ' ')}",
+                )
             await self._load_model(spec)
+        if progress_callback:
+            await progress_callback("loading_models", 0.28, "Models ready for inference")
 
     async def _load_model(self, spec: ModelSpec) -> None:
         model_path = Path(settings.models_dir) / spec.filename
@@ -64,8 +89,18 @@ class InferencePipeline:
         )
         self.sessions[spec.name] = session
 
-    async def process(self, image_path: Path, output_path: Path) -> None:
-        await self.load_models()
+    async def process(
+        self,
+        image_path: Path,
+        output_path: Path,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> None:
+        async def emit(stage: str, progress: float, message: str) -> None:
+            if progress_callback:
+                await progress_callback(stage, progress, message)
+
+        await emit("preparing", 0.1, "Loading source image")
+        await self.load_models(progress_callback=progress_callback)
         loop = asyncio.get_running_loop()
         image = await loop.run_in_executor(None, Image.open, image_path)
         image = image.convert("RGB")
@@ -73,8 +108,11 @@ class InferencePipeline:
         array = array.transpose(2, 0, 1)
         array = np.expand_dims(array, axis=0)
 
+        await emit("denoise", 0.35, "Running Restormer denoise pass")
         denoised = await self._run_session(RESTORMER_SPEC.name, array)
+        await emit("enhance", 0.55, "Refining detail with Real-ESRGAN")
         refined = await self._run_session(REAL_ESRGAN_SPEC.name, denoised)
+        await emit("refocus", 0.75, "Correcting focus with NAFNet")
         focused = await self._run_session(DEBLUR_SPEC.name, refined)
 
         focused = np.clip(focused, 0.0, 1.0)
@@ -82,7 +120,9 @@ class InferencePipeline:
         focused = focused.squeeze(0).transpose(1, 2, 0)
 
         output_image = Image.fromarray(focused)
+        await emit("saving", 0.9, "Compositing final output")
         await loop.run_in_executor(None, output_image.save, output_path)
+        await emit("saving", 0.98, "Output saved to disk")
 
     async def _run_session(self, name: str, array: np.ndarray) -> np.ndarray:
         session = self.sessions[name]

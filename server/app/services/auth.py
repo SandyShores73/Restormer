@@ -11,6 +11,7 @@ from sqlmodel import select
 from ..core.config import settings
 from ..models import User
 from ..schemas.users import UserCreate, UserRead
+from . import whitelist
 from ..utils.database import DatabaseManager
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -53,6 +54,7 @@ async def get_user_by_id(user_id: int) -> UserRead | None:
 
 
 async def create_user(user_in: UserCreate) -> UserRead:
+    await whitelist.ensure_allowed(user_in.email)
     async with settings.database.session() as session:
         existing = await session.exec(select(User).where(User.email == user_in.email))
         if existing.first():
@@ -69,6 +71,7 @@ async def create_user(user_in: UserCreate) -> UserRead:
 
 
 async def upsert_google_user(sub: str, email: str, full_name: str) -> UserRead:
+    await whitelist.ensure_allowed(email)
     async with settings.database.session() as session:
         result = await session.exec(select(User).where(User.google_sub == sub))
         user = result.first()

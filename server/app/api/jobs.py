@@ -53,9 +53,13 @@ def _build_job_read(job: ProcessingJob) -> JobRead:
         base_url = settings.normalised_public_base_url
         if base_url:
             download_url = urljoin(f"{base_url}/", download_path.lstrip("/"))
+    debug_lines = job.debug_log.splitlines() if job.debug_log else []
+    progress = job.progress or 0.0
+    stage = job.stage or "queued"
     return JobRead(
         id=job.id,
         status=job.status,
+        stage=stage,
         filename=filename,
         created_at=job.created_at,
         updated_at=job.updated_at,
@@ -63,7 +67,32 @@ def _build_job_read(job: ProcessingJob) -> JobRead:
         downloadable=downloadable,
         download_path=download_path,
         download_url=download_url,
+        progress=progress,
+        debug_lines=debug_lines,
     )
+
+
+async def _record_progress(
+    job: ProcessingJob,
+    *,
+    message: str,
+    status: str | None = None,
+    stage: str | None = None,
+    progress: float | None = None,
+) -> ProcessingJob:
+    if status:
+        job.status = status
+    if stage:
+        job.stage = stage
+    if progress is not None:
+        job.progress = max(0.0, min(progress, 1.0))
+    timestamp = datetime.utcnow().isoformat(timespec="seconds")
+    entry = f"[{timestamp}] {message}"
+    if job.debug_log:
+        job.debug_log = f"{job.debug_log.rstrip()}\n{entry}"
+    else:
+        job.debug_log = entry
+    return await _update_job(job)
 
 
 async def _process_job(job_id: int, input_path: Path, output_path: Path) -> None:
@@ -72,16 +101,35 @@ async def _process_job(job_id: int, input_path: Path, output_path: Path) -> None
         if not job:
             return
         try:
-            job.status = "processing"
-            await _update_job(job)
-            await pipeline.process(input_path, output_path)
-            job.status = "completed"
+            await _record_progress(
+                job,
+                message="Job picked up by worker",
+                status="processing",
+                stage="initialising",
+                progress=0.05,
+            )
+
+            async def emit(stage: str, progress: float, message: str) -> None:
+                await _record_progress(job, message=message, stage=stage, progress=progress)
+
+            await pipeline.process(input_path, output_path, progress_callback=emit)
             job.output_path = str(output_path)
-            await _update_job(job)
+            await _record_progress(
+                job,
+                message="Processing completed and output stored",
+                status="completed",
+                stage="completed",
+                progress=1.0,
+            )
         except Exception as exc:  # noqa: BLE001
-            job.status = "failed"
             job.error_message = str(exc)
-            await _update_job(job)
+            await _record_progress(
+                job,
+                message=f"Processing failed: {exc}",
+                status="failed",
+                stage="failed",
+                progress=1.0,
+            )
 
 
 @router.post("/", response_model=JobRead, status_code=status.HTTP_202_ACCEPTED)
@@ -104,14 +152,23 @@ async def create_job(
         job = ProcessingJob(
             user_id=current_user.id,
             status="queued",
+            stage="queued",
             input_path=str(destination),
             output_path=str(output_path),
+            progress=0.02,
         )
         session.add(job)
         await session.commit()
         await session.refresh(job)
 
     background_tasks.add_task(_process_job, job.id, destination, output_path)
+    await _record_progress(
+        job,
+        message="Job queued and awaiting worker assignment",
+        stage="queued",
+        status="queued",
+        progress=0.02,
+    )
     return _build_job_read(job)
 
 

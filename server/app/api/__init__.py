@@ -1,3 +1,3 @@
-from . import jobs, oauth, users
+from . import diagnostics, jobs, oauth, users
 
-__all__ = ["jobs", "oauth", "users"]
+__all__ = ["diagnostics", "jobs", "oauth", "users"]

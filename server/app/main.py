@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 
-from .api import jobs, oauth, users
+from .api import diagnostics, jobs, oauth, users
 from .auth.dependencies import get_current_active_user
 from .core.config import settings
 from .schemas.tokens import Token
@@ -31,6 +31,7 @@ app.add_middleware(
 )
 
 app.mount("/assets", StaticFiles(directory=settings.assets_dir), name="assets")
+app.mount("/dashboard", StaticFiles(directory=settings.dashboard_dir, html=True), name="dashboard")
 
 
 @app.on_event("startup")
@@ -38,6 +39,7 @@ async def startup_event() -> None:
     """Initialise core services when the application starts."""
     await settings.init_directories()
     await settings.database.create_db_and_tables()
+    await settings.database.ensure_columns()
 
 
 @app.post("/token", response_model=Token)
@@ -62,6 +64,14 @@ async def read_current_user(
     return current_user
 
 
+@app.get("/health", tags=["diagnostics"])
+async def health() -> dict[str, str]:
+    """Simple readiness probe used by the desktop client during onboarding."""
+
+    return {"status": "ok", "public_base_url": settings.normalised_public_base_url or "unset"}
+
+
 app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(oauth.router, prefix="/oauth", tags=["oauth"])
 app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
+app.include_router(diagnostics.router, prefix="/diagnostics", tags=["diagnostics"])

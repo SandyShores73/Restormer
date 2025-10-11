@@ -8,12 +8,18 @@ and a Radeon RX 7800 XT discrete GPU.
 ## Features
 
 - JWT-based authentication with optional Google Sign-In integration.
-- REST endpoints for image upload, job tracking, and result retrieval.
+- Email whitelist enforcement for new accounts plus `/users/verify` for the
+  desktop onboarding flow.
+- REST endpoints for image upload, job tracking (with progress + stage data),
+  and result retrieval.
 - Asynchronous pipeline that chains Restormer (denoise), Real-ESRGAN (detail
   enhancement), and NAFNet Deblur (focus correction) models.
 - Automatic model caching and DirectML execution provider selection to leverage
   AMD GPUs on Windows, with CPU fallbacks on other platforms.
-- SQLite database (via SQLModel) for user and job persistence.
+- Built-in `/dashboard` single-page GUI for live diagnostics, and a
+  `/diagnostics/summary` API summarising provider availability and recent jobs.
+- SQLite database (via SQLModel) for user and job persistence, including an
+  `alloweduser` table that drives the whitelist.
 
 ## Environment Setup
 
@@ -32,6 +38,9 @@ for internet-facing deployments include:
 - `RESTORMER_PUBLIC_BASE_URL` – the HTTPS address clients should reach (for
   example `https://denoise.example.com`).  When set, job responses include fully
   qualified download URLs.
+- `RESTORMER_DASHBOARD_TOKEN` – optional bearer token required by
+  `/diagnostics/summary` and the static dashboard UI. Leave blank to allow
+  unauthenticated dashboard access.
 
 ## Running the Server Locally
 
@@ -41,6 +50,35 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 The first request triggers automatic downloads of the required ONNX models into
 `server/models_cache`.  Subsequent inferences reuse the cached weights.
+
+The service also initialises (or auto-migrates) database columns for
+`progress`, `stage`, and `debug_log` so existing installations gain the richer
+telemetry required by the new desktop dashboards.
+
+## Managing the whitelist
+
+Create whitelist entries by inserting rows into the `alloweduser` table. For a
+SQLite deployment you can seed the list directly:
+
+```bash
+sqlite3 server/restormer.db \
+  "INSERT INTO alloweduser (email, display_name, is_active) VALUES ('you@studio.com', 'You', 1);"
+```
+
+The desktop client will only allow registrations for emails present in this
+table. Successful verification automatically updates `last_verified_at`, giving
+administrators visibility into active invitations.
+
+## Operations dashboard
+
+- Visit `https://your-domain/dashboard/` to open the bundled operations GUI.
+  It shows provider availability, average job progress, and the most recent
+  debug lines without needing to compile a separate frontend.
+- The dashboard polls `/diagnostics/summary` every five seconds. Supply
+  `X-Dashboard-Token: <RESTORMER_DASHBOARD_TOKEN>` if you configured a token.
+- The endpoint returns job counts by status, capped recent jobs (with progress
+  and last debug message), and the ONNX providers detected at runtime—ideal for
+  remote health monitoring or embedding into your own observability tooling.
 
 ## Building a Windows Installer
 

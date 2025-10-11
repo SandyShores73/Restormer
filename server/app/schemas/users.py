@@ -29,3 +29,13 @@ class UserUpdate(BaseModel):
     password: str | None = None
     is_active: bool | None = None
     is_superuser: bool | None = None
+
+
+class WhitelistCheckRequest(BaseModel):
+    email: EmailStr
+
+
+class WhitelistCheckResponse(BaseModel):
+    allowed: bool
+    display_name: str | None = None
+    message: str

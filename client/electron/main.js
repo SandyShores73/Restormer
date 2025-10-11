@@ -8,6 +8,11 @@ const createWindow = async () => {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    minWidth: 1024,
+    minHeight: 640,
+    show: false,
+    backgroundColor: "#05060a",
+    titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -20,8 +25,12 @@ const createWindow = async () => {
     await mainWindow.loadURL(devServerURL);
     mainWindow.webContents.openDevTools();
   } else {
-    await mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+    await mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+  });
 };
 
 app.whenReady().then(createWindow);

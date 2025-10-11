@@ -9,7 +9,8 @@ and Windows.
 ## Structure
 
 - `server/` – FastAPI application with DirectML-accelerated ONNX inference,
-  SQLite persistence, JWT authentication, and optional Google Sign-In support.
+  SQLite persistence, JWT authentication, whitelist enforcement, live job
+  progress, and an embedded diagnostics dashboard.
 - `client/` – Electron + React desktop client packaged as `.dmg` (macOS) and
   `.exe` (Windows) via electron-builder.
 
@@ -23,8 +24,10 @@ and Windows.
 - Host the backend on a Windows 11 workstation with the AMD RX 7800 XT to take
   advantage of DirectML GPU acceleration.
 - Use HTTPS and secure password hashing in production environments.
-- Maintain the allowed users list through the `/users` API endpoints or by
-  seeding the SQLite database.
+- Seed the `alloweduser` table so that new accounts can be approved during the
+  desktop onboarding flow; see `server/README.md` for quick SQL helpers.
+- Monitor `/dashboard` for a glassmorphism control centre that surfaces ONNX
+  providers, job counts, progress, and the latest debug lines.
 - When exposing the service on the public internet, configure
   `RESTORMER_PUBLIC_BASE_URL` and `RESTORMER_ALLOWED_ORIGINS` so the desktop
   client can discover download links while keeping CORS tight to your domain.

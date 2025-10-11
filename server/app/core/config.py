@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     project_root: Path = Path(__file__).resolve().parents[2]
     assets_dir: Path = Field(default_factory=lambda: Path("server/processed"))
+    dashboard_dir: Path = Field(default_factory=lambda: Path("server/dashboard"))
     models_dir: Path = Field(default_factory=lambda: Path("server/models_cache"))
     processed_dir: Path = Field(default_factory=lambda: Path("server/processed"))
     upload_dir: Path = Field(default_factory=lambda: Path("server/uploads"))
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
     google_client_id: str | None = Field(default=None, env="GOOGLE_CLIENT_ID")
     google_client_secret: str | None = Field(
         default=None, env="GOOGLE_CLIENT_SECRET"
+    )
+    dashboard_token: str | None = Field(
+        default=None, env="RESTORMER_DASHBOARD_TOKEN"
     )
 
     class Config:
@@ -54,7 +58,13 @@ class Settings(BaseSettings):
         return str(self.public_base_url).rstrip("/")
 
     async def init_directories(self) -> None:
-        for directory in (self.assets_dir, self.models_dir, self.processed_dir, self.upload_dir):
+        for directory in (
+            self.assets_dir,
+            self.dashboard_dir,
+            self.models_dir,
+            self.processed_dir,
+            self.upload_dir,
+        ):
             Path(directory).mkdir(parents=True, exist_ok=True)
 
     def export(self) -> dict[str, Any]:

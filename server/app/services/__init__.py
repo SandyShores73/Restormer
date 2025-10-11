@@ -1,3 +1,3 @@
-from . import auth, pipeline
+from . import auth, pipeline, whitelist
 
-__all__ = ["auth", "pipeline"]
+__all__ = ["auth", "pipeline", "whitelist"]
