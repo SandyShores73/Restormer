@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import List
@@ -20,6 +21,8 @@ from ..services.pipeline import MODE_LABELS, SUPPORTED_MODES, pipeline
 from ..utils.database import DatabaseManager
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 db: DatabaseManager = settings.database
 
@@ -130,6 +133,7 @@ async def _process_job(job_id: int) -> None:
         if not job:
             return
         try:
+            logger.info("Job picked up", extra={"job_id": job.id})
             await _record_progress(
                 job,
                 message="Job picked up by worker",
@@ -169,8 +173,10 @@ async def _process_job(job_id: int) -> None:
                 stage="completed",
                 progress=1.0,
             )
+            logger.info("Job completed", extra={"job_id": job.id, "output_path": job.output_path})
         except Exception as exc:  # noqa: BLE001
             job.error_message = str(exc)
+            logger.exception("Job failed", extra={"job_id": job.id})
             await _record_progress(
                 job,
                 message=f"Processing failed: {exc}",
@@ -188,6 +194,15 @@ async def create_job(
     passes: int = Form(1),
     current_user: UserRead = Depends(get_current_active_user),
 ) -> JobRead:
+    logger.info(
+        "Creating job",
+        extra={
+            "email": current_user.email,
+            "image_count": len(files or []),
+            "mode": mode,
+            "passes": passes,
+        },
+    )
     if not files:
         raise HTTPException(status_code=400, detail="Upload at least one image")
     if len(files) > 25:
@@ -256,6 +271,7 @@ async def create_job(
         status="queued",
         progress=0.03,
     )
+    logger.info("Job queued", extra={"job_id": job.id, "user_id": current_user.id, "mode": normalised_mode, "image_count": len(input_manifest)})
     return _build_job_read(job)
 
 

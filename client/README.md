@@ -1,13 +1,13 @@
-# Restormer Remote Client
+# Luma Studio
 
 Electron + React desktop client for macOS (DMG) and Windows (NSIS EXE) that
-communicates with the Restormer Remote AI denoise server.
+communicates with the Luma Remote AI denoise server.
 
 The refreshed client ships with an Apple-inspired adaptive UI, animated
 loading screen, GPU job progress visualisations, live debugging console, and a
 first-run onboarding flow that validates a user-selected username/password
 against the server whitelist before enabling access. Every stage of the
-Restormer batch pipeline (model caching, per-pass inference, archiving) emits
+Luma batch pipeline (model caching, per-pass inference, archiving) emits
 progress percentages so the macOS and Windows builds never appear “stuck” on a
 blank screen.
 
@@ -63,7 +63,7 @@ can connect to your production endpoint without recompilation.
 - **Upload progress & refetch cues** – file uploads emit realtime percentages
   and the dashboard shows when the client is refreshing job telemetry, making
   long GPU runs predictable.
-- **Restormer mode matrix & bulk batching** – choose between denoising, motion
+- **Luma mode matrix & bulk batching** – choose between denoising, motion
   deblur, or defocus correction, control 1x–5x passes, and queue up to 25
   images in a single batch with automatic archive downloads.
 
@@ -77,9 +77,9 @@ The Electron builder configuration in `package.json` outputs installers to the
 
 ## macOS Installation
 
-1. Build the DMG on macOS (or download the generated `Restormer-Remote-Client-*.dmg`
+1. Build the DMG on macOS (or download the generated `Luma-Remote-Client-*.dmg`
    artifact if you already ran `npm run build`).
-2. Double-click the DMG to mount it and drag **Restormer Remote Client.app** into
+2. Double-click the DMG to mount it and drag **Luma Studio.app** into
    your **Applications** folder.
 3. Launch the app from Applications. On first run macOS may warn that the
    application was downloaded from the internet—choose **Open** to continue.

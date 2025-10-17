@@ -1,0 +1,15 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.luma.client
+mac:
+  target: dmg
+  category: public.app-category.photography
+win:
+  target: nsis
+  publisherName: Luma
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+files: []
+electronVersion: 28.3.3

@@ -20,20 +20,37 @@ const createWindow = async () => {
     }
   });
 
+  const showFallback = setTimeout(() => {
+    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 3000);
+
   const devServerURL = process.env.VITE_DEV_SERVER_URL;
   if (isDev && devServerURL) {
     await mainWindow.loadURL(devServerURL);
-    mainWindow.webContents.openDevTools();
   } else {
-    await mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    const distDir = path.join(__dirname, "../dist");
+    const rendererPath = path.join(distDir, "renderer/index.html");
+    const fallbackPath = path.join(distDir, "index.html");
+    const target = fs.existsSync(rendererPath) ? rendererPath : fallbackPath;
+    await mainWindow.loadFile(target);
   }
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
+    clearTimeout(showFallback);
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.setTitle("Luma Studio");
+      mainWindow.focus();
+    }
   });
 };
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  app.setName("Luma Studio");
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

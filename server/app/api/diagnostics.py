@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlmodel import select
 
+from ..auth.dependencies import get_current_active_user
 from ..core.config import settings
 from ..models import ProcessingJob
+from ..schemas.users import UserRead
 from ..services.pipeline import pipeline
 from ..utils.database import DatabaseManager
+from ..utils.logging import get_log_file_path
 
 router = APIRouter()
 
@@ -60,6 +63,30 @@ async def diagnostics_summary(
         "average_progress": round(average_progress, 3),
         "environment": environment,
         "recent_jobs": recent_jobs,
+    }
+
+
+@router.get("/logs")
+async def diagnostics_logs(
+    limit: int = 200,
+    current_user: UserRead = Depends(get_current_active_user),
+) -> dict[str, object]:
+    """Return the most recent server log lines for on-device debugging."""
+
+    log_path = get_log_file_path()
+    if not log_path or not log_path.exists():
+        raise HTTPException(status_code=404, detail="Log file not initialised")
+
+    limit = max(1, min(limit, 2000))
+    with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+        lines = [line.rstrip("\n") for line in deque(handle, maxlen=limit)]
+
+    return {
+        "path": str(log_path),
+        "line_count": len(lines),
+        "lines": lines,
+        "updated_at": datetime.utcnow().isoformat(),
+        "viewer": current_user.email,
     }
 
 

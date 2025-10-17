@@ -14,7 +14,7 @@ from ..services import auth, whitelist
 router = APIRouter()
 
 
-@router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(user_in: UserCreate) -> UserRead:
     return await auth.create_user(user_in)
 

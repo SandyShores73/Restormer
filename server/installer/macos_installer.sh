@@ -14,7 +14,7 @@ PYTHON_BIN=${PYTHON_BIN:-python3}
 mkdir -p "${RESOURCES_DIR}" "${MACOS_DIR}" "${SUPPORT_ROOT}"
 
 # Copy server source
-rsync -a --delete "${REPO_ROOT}/server/" "${RESOURCES_DIR}/server/"
+rsync -a --delete "${REPO_ROOT}/" "${RESOURCES_DIR}/server/"
 
 cat > "${APP_DIR}/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -44,20 +44,49 @@ APP_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 RESOURCES_DIR="$APP_ROOT/Resources"
 SUPPORT_ROOT="${HOME}/Library/Application Support/RestormerServer"
 VENV_DIR="$SUPPORT_ROOT/venv"
-PYTHON_BIN=${PYTHON_BIN:-python3}
+
+if command -v python3.11 >/dev/null 2>&1; then
+  PYTHON_BIN=${PYTHON_BIN:-python3.11}
+else
+  PYTHON_BIN=${PYTHON_BIN:-python3}
+fi
+
+# If the server is already running, notify the user and exit early.
+if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
+  osascript -e 'display notification "Restormer Server is already running." with title "Restormer Server"' >/dev/null 2>&1 || true
+  exit 0
+fi
 
 mkdir -p "$SUPPORT_ROOT"
 if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 source "$VENV_DIR/bin/activate"
+export PYTHONPATH="$RESOURCES_DIR:${PYTHONPATH:-}"
+cd "$RESOURCES_DIR"
+osascript -e 'display notification "Preparing dependencies…" with title "Restormer Server"' >/dev/null 2>&1 || true
 python -m pip install --upgrade pip
 python -m pip install -r "$RESOURCES_DIR/server/requirements.txt"
 python - <<'PY'
 import asyncio
+import sys
+import traceback
+from server.app.core.config import settings
 from server.app.services.pipeline import pipeline
-asyncio.run(pipeline.prepare_all_models())
+
+
+async def _bootstrap_models() -> None:
+    try:
+        await settings.init_directories()
+        await pipeline.prepare_all_models()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Warning: model bootstrap failed: {exc}", file=sys.stderr)
+        traceback.print_exc()
+
+
+asyncio.run(_bootstrap_models())
 PY
+osascript -e 'display notification "Restormer Server starting…" with title "Restormer Server"' >/dev/null 2>&1 || true
 LOG_DIR="$SUPPORT_ROOT/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/restormer-server.log"

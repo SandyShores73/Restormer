@@ -49,6 +49,14 @@ export interface HealthResponse {
   public_base_url: string;
 }
 
+export interface DiagnosticsLogResponse {
+  path: string;
+  line_count: number;
+  lines: string[];
+  updated_at: string;
+  viewer: string;
+}
+
 export interface UploadJobParams {
   token: string;
   data: FormData;
@@ -64,6 +72,7 @@ export interface ApiClient {
   verifyWhitelist: (email: string) => Promise<WhitelistCheckResponse>;
   registerUser: (payload: RegisterUserPayload) => Promise<UserProfile>;
   fetchProfile: (token: string) => Promise<UserProfile>;
+  fetchDiagnosticsLogs: (token: string, limit?: number) => Promise<DiagnosticsLogResponse>;
   health: () => Promise<HealthResponse>;
 }
 
@@ -133,6 +142,13 @@ export const createApiClient = (baseUrl: string): ApiClient => {
     },
     fetchProfile: async (token: string) => {
       const { data } = await http.get<UserProfile>("/me", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return data;
+    },
+    fetchDiagnosticsLogs: async (token: string, limit = 200) => {
+      const { data } = await http.get<DiagnosticsLogResponse>("/diagnostics/logs", {
+        params: { limit },
         headers: { Authorization: `Bearer ${token}` }
       });
       return data;

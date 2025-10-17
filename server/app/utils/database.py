@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 from typing import Iterable
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel.ext.asyncio.engine import create_async_engine
 
 
 class DatabaseManager:
@@ -15,14 +16,16 @@ class DatabaseManager:
 
     def __init__(self, url: str) -> None:
         self.engine = create_async_engine(url, echo=False, future=True)
+        self._session_factory = sessionmaker(
+            self.engine,
+            expire_on_commit=False,
+            class_=AsyncSession,
+        )
 
     @asynccontextmanager
     async def session(self) -> AsyncSession:
-        async_session = AsyncSession(self.engine)
-        try:
+        async with self._session_factory() as async_session:
             yield async_session
-        finally:
-            await async_session.close()
 
     async def create_db_and_tables(self) -> None:
         async with self.engine.begin() as conn:

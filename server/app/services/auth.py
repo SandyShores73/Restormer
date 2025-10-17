@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import HTTPException
+import logging
+
+from fastapi import HTTPException, status
 from jose import jwt
-from passlib.context import CryptContext
+from passlib.hash import pbkdf2_sha256
 from sqlmodel import select
 
 from ..core.config import settings
@@ -14,15 +16,15 @@ from ..schemas.users import UserCreate, UserRead
 from . import whitelist
 from ..utils.database import DatabaseManager
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+logger = logging.getLogger(__name__)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return pbkdf2_sha256.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return pbkdf2_sha256.hash(password)
 
 
 def create_access_token(subject: int, expires_delta: Optional[timedelta] = None) -> str:
@@ -34,8 +36,13 @@ def create_access_token(subject: int, expires_delta: Optional[timedelta] = None)
 
 async def authenticate_user(email: str, password: str) -> UserRead | None:
     user = await get_user_by_email(email)
-    if not user or not verify_password(password, user.password_hash):
+    if not user:
+        logger.warning("Authentication failed: user not found", extra={"email": email})
         return None
+    if not verify_password(password, user.password_hash):
+        logger.warning("Authentication failed: invalid password", extra={"email": email})
+        return None
+    logger.info("Authentication succeeded", extra={"user_id": user.id, "email": user.email})
     return UserRead.from_orm(user)
 
 
@@ -54,11 +61,13 @@ async def get_user_by_id(user_id: int) -> UserRead | None:
 
 
 async def create_user(user_in: UserCreate) -> UserRead:
+    logger.info("Creating new user", extra={"email": user_in.email})
     await whitelist.ensure_allowed(user_in.email)
     async with settings.database.session() as session:
         existing = await session.exec(select(User).where(User.email == user_in.email))
         if existing.first():
-            raise HTTPException(status_code=400, detail="Email already registered")
+            logger.warning("Registration attempted for existing email", extra={"email": user_in.email})
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
         user = User(
             email=user_in.email,
             full_name=user_in.full_name,
@@ -67,6 +76,7 @@ async def create_user(user_in: UserCreate) -> UserRead:
         session.add(user)
         await session.commit()
         await session.refresh(user)
+        logger.info("User created", extra={"user_id": user.id, "email": user.email})
         return UserRead.from_orm(user)
 
 

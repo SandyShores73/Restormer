@@ -1,19 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   JobResponse,
   TokenResponse,
   UserProfile,
   WhitelistCheckResponse,
+  DiagnosticsLogResponse,
   createApiClient
 } from "./api";
+import { debug, debugBus, DebugEvent } from "./debug";
+import lumaLogo from "./assets/luma-logo.svg";
 
 const defaultServerUrl =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
 
+const HEALTH_CHECK_TIMEOUT = 8000;
+
 type AppPhase = "splash" | "configureServer" | "onboard" | "dashboard";
 type OnboardingMode = "new" | "returning";
-type RestormerMode = "denoise" | "motion_deblur" | "defocus_deblur";
+type PipelineMode = "denoise" | "motion_deblur" | "defocus_deblur";
 
 type LoadingState = {
   message: string;
@@ -43,29 +49,29 @@ const stageDescriptions: Record<string, string> = {
   queued: "Awaiting GPU availability",
   initialising: "Preparing inference graph",
   preparing: "Loading the source frame",
-  loading_models: "Fetching Restormer weights",
+  loading_models: "Fetching model weights",
   batch_prepare: "Decoding batch imagery",
-  restormer_pass: "Executing Restormer inference",
+  restormer_pass: "Executing Luma inference",
   saving: "Writing processed imagery",
   archiving: "Packaging download archive",
   completed: "Job finished successfully",
   failed: "Job halted due to an error"
 };
 
-const restormerOptions: Array<{ value: RestormerMode; label: string; description: string }> = [
+const pipelineOptions: Array<{ value: PipelineMode; label: string; description: string }> = [
   {
     value: "denoise",
-    label: "Restormer Denoising",
+    label: "Luma Denoising",
     description: "Suppress sensor noise while preserving crisp texture."
   },
   {
     value: "motion_deblur",
-    label: "Restormer Motion Deblurring",
+    label: "Luma Motion Deblurring",
     description: "Stabilise handheld or action shots affected by motion."
   },
   {
     value: "defocus_deblur",
-    label: "Restormer Defocus Deblurring",
+    label: "Luma Defocus Deblurring",
     description: "Recover optical focus lost to shallow depth of field."
   }
 ];
@@ -112,12 +118,43 @@ const setStoredValue = (key: string, value: string | null) => {
   }
 };
 
+const extractErrorMessage = (error: unknown, fallback: string) => {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim().length > 0) {
+      return detail;
+    }
+    return error.message || fallback;
+  }
+  return error instanceof Error ? error.message : fallback;
+};
+
+
+const formatTimestamp = (value: number) =>
+  new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+const formatDebugDetail = (detail: unknown) => {
+  if (detail === undefined || detail === null) {
+    return "";
+  }
+  if (typeof detail === "string") {
+    return detail;
+  }
+  try {
+    return JSON.stringify(detail, null, 2);
+  } catch (error) {
+    console.warn("debug detail serialise failed", error);
+    return String(detail);
+  }
+};
 const SplashScreen: React.FC<LoadingState> = ({ message, progress, accent }) => (
   <div className="splash-screen">
     <div className={`splash-card ${accent ?? ""}`}>
-      <div className="splash-emblem">📸</div>
+      <div className="splash-emblem">
+        <img src={lumaLogo} alt="Luma" />
+      </div>
       <div className="splash-copy">
-        <h1>Restormer Remote Studio</h1>
+        <h1>Luma Studio</h1>
         <p>{message}</p>
       </div>
       <div className="progress-track">
@@ -192,43 +229,63 @@ const App: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState("");
 
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [selectedMode, setSelectedMode] = useState<RestormerMode>("denoise");
+  const [selectedMode, setSelectedMode] = useState<PipelineMode>("denoise");
   const [selectedPasses, setSelectedPasses] = useState<number>(1);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [debugEvents, setDebugEvents] = useState<DebugEvent[]>(() => debugBus.snapshot());
+  const [serverLogs, setServerLogs] = useState<DiagnosticsLogResponse | null>(null);
+  const [serverLogsError, setServerLogsError] = useState<string | null>(null);
+  const [serverLogsLoading, setServerLogsLoading] = useState(false);
+
   const apiClient = useMemo(() => createApiClient(serverUrl), [serverUrl]);
   const jobsQuery = useJobsQuery(apiClient, token, phase, serverUrl);
 
+  const jobs = useMemo(() => {
+    if (!jobsQuery.data) {
+      return [] as JobResponse[];
+    }
+    if (!Array.isArray(jobsQuery.data)) {
+      debug.error("jobs", "Received unexpected jobs payload", { payload: jobsQuery.data });
+      return [] as JobResponse[];
+    }
+    return jobsQuery.data;
+  }, [jobsQuery.data]);
+
   useEffect(() => {
     setStoredValue("restormer.serverUrl", serverUrl);
+    debug.info("server.url", "Server URL updated", { serverUrl });
   }, [serverUrl]);
 
   useEffect(() => {
     if (token) {
       setStoredValue("restormer.token", token);
+      debug.info("auth.token", "Stored access token");
     } else {
       setStoredValue("restormer.token", null);
+      debug.info("auth.token", "Cleared access token");
     }
   }, [token]);
 
   useEffect(() => {
-    if (phase !== "dashboard" || !jobsQuery.data?.length) {
+    if (phase !== "dashboard" || jobs.length === 0) {
       return;
     }
     if (selectedJobId === null) {
-      setSelectedJobId(jobsQuery.data[0]?.id ?? null);
+      setSelectedJobId(jobs[0]?.id ?? null);
       return;
     }
-    const exists = jobsQuery.data.some((job) => job.id === selectedJobId);
-    if (!exists) {
-      setSelectedJobId(jobsQuery.data[0]?.id ?? null);
+    if (!jobs.some((job) => job.id === selectedJobId)) {
+      setSelectedJobId(jobs[0]?.id ?? null);
     }
-  }, [jobsQuery.data, phase, selectedJobId]);
+  }, [jobs, phase, selectedJobId]);
 
   useEffect(() => {
     const initialise = async () => {
+      debug.info("startup", "Initialising client state");
       try {
         setPhase("splash");
         setLoadingState({ message: "Restoring preferences…", progress: 0.22 });
@@ -238,27 +295,37 @@ const App: React.FC = () => {
 
         const client = createApiClient(storedServer);
         setLoadingState({ message: "Checking server availability…", progress: 0.45 });
-        await client.health();
+        await Promise.race([
+          client.health(),
+          new Promise((_, reject) =>
+            window.setTimeout(() => reject(new Error("Health check timeout")), HEALTH_CHECK_TIMEOUT)
+          )
+        ]);
+        debug.info("startup", "Server health verified", { server: storedServer });
 
         const storedToken = getStoredValue("restormer.token");
         if (storedToken) {
           setLoadingState({ message: "Verifying session…", progress: 0.65 });
+          debug.info("auth.session", "Validating stored session");
           try {
             const me = await client.fetchProfile(storedToken);
             setToken(storedToken);
             setProfile(me);
+            debug.info("auth.session", "Restored existing session", { email: me.email });
             setLoadingState({ message: `Welcome back, ${me.full_name}`, progress: 0.92 });
-            setTimeout(() => setPhase("dashboard"), 180);
+            setPhase("dashboard");
             return;
           } catch (error) {
             console.warn("Stored session invalid", error);
+            debug.warn("auth.session", "Stored session invalid", error);
             setStoredValue("restormer.token", null);
           }
         }
         setLoadingState({ message: "Let’s connect you to the studio", progress: 0.88 });
-        setTimeout(() => setPhase("onboard"), 220);
+        setPhase("onboard");
       } catch (error) {
         console.warn("Bootstrap failed", error);
+        debug.error("startup", "Failed during bootstrap", error);
         setServerUrlError("Could not reach the server. Please confirm the URL.");
         setPhase("configureServer");
       }
@@ -273,10 +340,12 @@ const App: React.FC = () => {
     onSuccess: (response) => {
       setVerification(response);
       setOnboardingError(null);
+      debug.info("auth.whitelist", "Whitelist confirmed", { email: newEmail, allowed: response.allowed });
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : "Unable to check whitelist";
+      const message = extractErrorMessage(error, "Unable to check whitelist");
       setOnboardingError(message);
+      debug.error("auth.whitelist", "Whitelist check failed", { email: newEmail, message, error });
     }
   });
 
@@ -293,15 +362,18 @@ const App: React.FC = () => {
 
   const handleAuthenticated = useCallback(
     async (accessToken: string) => {
+      debug.info("auth.session", "Establishing new session");
       setPhase("splash");
       setLoadingState({ message: "Securing your studio session…", progress: 0.72 });
       try {
         const me = await apiClient.fetchProfile(accessToken);
         setToken(accessToken);
         setProfile(me);
+        debug.info("auth.session", "Session established", { email: me.email });
         setLoadingState({ message: `Hello ${me.full_name}`, progress: 0.98 });
-        setTimeout(() => setPhase("dashboard"), 200);
+        setPhase("dashboard");
       } catch (error) {
+        debug.error("auth.session", "Failed to establish session", error);
         setLoadingState({ message: "Unable to finish sign-in", progress: 1, accent: "error" });
         setPhase("onboard");
         throw error;
@@ -315,6 +387,7 @@ const App: React.FC = () => {
       if (!token) {
         throw new Error("Not authenticated");
       }
+      debug.info("upload", "Initialising upload mutation");
       setUploadProgress(0.04);
       await apiClient.uploadJob({
         token,
@@ -326,6 +399,7 @@ const App: React.FC = () => {
       setUploadProgress(1);
       setUploadWarning(null);
       setUploadMessage("Upload complete. Monitoring job queue…");
+      debug.info("upload", "Upload succeeded");
       void jobsQuery.refetch();
       setTimeout(() => setUploadProgress(0), 700);
     },
@@ -339,19 +413,22 @@ const App: React.FC = () => {
 
   const handleSelectFiles = async () => {
     if (uploadMutation.isPending || !token) {
+      debug.warn("upload", "File selection blocked", { pending: uploadMutation.isPending, authenticated: Boolean(token) });
       return;
     }
     const files = await window.electronAPI.openFiles();
     if (!files || files.length === 0) {
+      debug.warn("upload", "File picker closed without selection");
       return;
     }
     const trimmed = files.slice(0, 25);
+    debug.info("upload", "File selection", { requested: files.length, accepted: trimmed.length });
     if (files.length > trimmed.length) {
       setUploadWarning("Only the first 25 images will be queued per batch.");
     } else {
       setUploadWarning(null);
     }
-    const option = restormerOptions.find((item) => item.value === selectedMode);
+    const option = pipelineOptions.find((item) => item.value === selectedMode);
     const label = option?.label ?? selectedMode;
     setUploadMessage(
       `Uploading ${trimmed.length} image${trimmed.length === 1 ? "" : "s"} with ${label} · ${selectedPasses}x passes.`
@@ -367,6 +444,34 @@ const App: React.FC = () => {
     await uploadMutation.mutateAsync(formData);
   };
 
+  const fetchServerLogs = useCallback(
+    async (limit = 200, trigger: "manual" | "auto" = "manual") => {
+      if (!token) {
+        setServerLogs(null);
+        setServerLogsError("Sign in to access server logs.");
+        debug.warn("diagnostics", "Log fetch attempted without token", { trigger });
+        return;
+      }
+      try {
+        setServerLogsLoading(true);
+        setServerLogsError(null);
+        debug.info("diagnostics", "Requesting server logs", { limit, trigger });
+        const response = await apiClient.fetchDiagnosticsLogs(token, limit);
+        setServerLogs(response);
+        debug.info("diagnostics", "Received server logs", { line_count: response.line_count, updated_at: response.updated_at, trigger });
+      } catch (error) {
+        const message = extractErrorMessage(error, "Unable to fetch logs");
+        setServerLogsError(message);
+        debug.error("diagnostics", "Fetching server logs failed", { message, error, trigger });
+      } finally {
+        setServerLogsLoading(false);
+      }
+    },
+    [apiClient, token]
+  );
+
+  const handleFetchServerLogs = useCallback(() => fetchServerLogs(200, "manual"), [fetchServerLogs]);
+
   const handleServerProbe = async () => {
     try {
       setProbeBusy(true);
@@ -378,9 +483,12 @@ const App: React.FC = () => {
       }
       // eslint-disable-next-line no-new
       new URL(candidate);
+      debug.info("server.probe", "Pinging server", { candidate });
       const probeClient = createApiClient(candidate);
       const response = await probeClient.health();
+      debug.info("server.probe", "Server responded", { status: response.status, public: response.public_base_url });
       setServerUrl(candidate);
+      debug.info("server.probe", "Server URL saved", { candidate });
       if (token) {
         setToken(null);
         setProfile(null);
@@ -394,6 +502,7 @@ const App: React.FC = () => {
       }, 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to reach server";
+      debug.error("server.probe", "Failed to reach server", { message, error });
       setServerUrlError(message);
       setServerProbeMessage("");
     } finally {
@@ -407,11 +516,13 @@ const App: React.FC = () => {
       setOnboardingError("Enter the email you would like to register with.");
       return;
     }
+    debug.info("auth.whitelist", "Checking whitelist", { email: newEmail });
     await verifyWhitelistMutation.mutateAsync(newEmail);
   };
 
   const handleRegister = async () => {
     setOnboardingError(null);
+    debug.info("auth.register", "Attempting registration", { email: newEmail });
     if (!verification?.allowed) {
       setOnboardingError("Verify that your email is whitelisted before registering.");
       return;
@@ -436,13 +547,15 @@ const App: React.FC = () => {
       });
       await handleAuthenticated(tokenResponse.access_token);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Registration failed";
+      const message = extractErrorMessage(error, "Registration failed");
+      debug.error("auth.register", "Registration failed", { email: newEmail, message, error });
       setOnboardingError(message);
     }
   };
 
   const handleLogin = async () => {
     setOnboardingError(null);
+    debug.info("auth.login", "Attempting login", { email: loginEmail });
     if (!loginEmail || !loginPassword) {
       setOnboardingError("Enter both your email and password.");
       return;
@@ -454,34 +567,37 @@ const App: React.FC = () => {
       });
       await handleAuthenticated(tokenResponse.access_token);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Sign-in failed";
+      const message = extractErrorMessage(error, "Sign-in failed");
+      debug.error("auth.login", "Sign-in failed", { email: loginEmail, message, error });
       setOnboardingError(message);
     }
   };
 
   const handleLogout = () => {
+    debug.info("auth.logout", "Signing out user");
     setToken(null);
     setProfile(null);
     setStoredValue("restormer.token", null);
     setPhase("onboard");
   };
 
-  const selectedJob = jobsQuery.data?.find((job) => job.id === selectedJobId) ?? null;
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
   const latestDebug = useMemo(() => {
-    if (!jobsQuery.data) {
+    if (jobs.length === 0) {
       return [] as { job: JobResponse; line: string; index: number }[];
     }
-    const tail = jobsQuery.data.flatMap((job) =>
+    const tail = jobs.flatMap((job) =>
       job.debug_lines.slice(-3).map((line, index) => ({ job, line, index }))
     );
     return tail.slice(-15).reverse();
-  }, [jobsQuery.data]);
+  }, [jobs]);
+  const sortedDebugEvents = useMemo(() => [...debugEvents].reverse(), [debugEvents]);
 
   const renderServerConfigurator = () => (
     <div className="card configure-card">
       <header>
         <div>
-          <h2>Connect to your Restormer server</h2>
+          <h2>Connect to your Luma server</h2>
           <p className="card-subtitle">
             Provide the HTTPS endpoint exposed to the public web. We automatically ping <code>/health</code>
             to confirm connectivity.
@@ -640,7 +756,7 @@ const App: React.FC = () => {
     <div className="dashboard">
       <header className="dashboard-header">
         <div>
-          <h1>✨ Ultra-fine restoration cockpit</h1>
+          <h1>✨ Luma control center</h1>
           <p>
             Connected to <strong>{serverUrl}</strong> as {profile?.full_name ?? "anonymous operator"}. GPU jobs
             auto-scale and stream debug telemetry in real time.
@@ -669,12 +785,12 @@ const App: React.FC = () => {
           </header>
           <div className="mode-controls">
             <label className="field compact">
-              <span>Restormer function</span>
+              <span>Processing function</span>
               <select
                 value={selectedMode}
-                onChange={(event) => setSelectedMode(event.target.value as RestormerMode)}
+                onChange={(event) => setSelectedMode(event.target.value as PipelineMode)}
               >
-                {restormerOptions.map((option) => (
+                {pipelineOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -696,7 +812,7 @@ const App: React.FC = () => {
             </label>
           </div>
           <p className="helper-text">
-            {restormerOptions.find((option) => option.value === selectedMode)?.description}
+            {pipelineOptions.find((option) => option.value === selectedMode)?.description}
           </p>
           <div className="actions">
             <button type="button" onClick={handleSelectFiles} disabled={uploadMutation.isPending || !token}>
@@ -741,7 +857,7 @@ const App: React.FC = () => {
           <header>
             <div>
               <h2>Job timeline</h2>
-              <p className="card-subtitle">Monitor Restormer batches with live telemetry.</p>
+              <p className="card-subtitle">Monitor Luma batches with live telemetry.</p>
             </div>
             <ImageCue status="queued" />
           </header>
@@ -768,14 +884,14 @@ const App: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {jobsQuery.data && jobsQuery.data.length === 0 && (
+                  {jobs.length === 0 && (
                     <tr>
                       <td colSpan={9} className="empty-state">
                         No jobs yet — upload imagery to kick off the pipeline.
                       </td>
                     </tr>
                   )}
-                  {jobsQuery.data?.map((job) => {
+                  {jobs.map((job) => {
                     const meta = statusMeta[job.status] ?? statusMeta.processing;
                     return (
                       <tr
@@ -918,6 +1034,71 @@ const App: React.FC = () => {
           )}
           {phase === "dashboard" && renderDashboard()}
         </div>
+      )}
+      <button
+        type="button"
+        className="debug-toggle"
+        onClick={() => setDebugPanelOpen((value) => !value)}
+      >
+        {debugPanelOpen ? "Hide diagnostics" : "Show diagnostics"}
+      </button>
+      {debugPanelOpen && (
+        <aside className="debug-panel">
+          <header className="debug-panel-header">
+            <div>
+              <h3>Diagnostics console</h3>
+              <p className="helper-text">Latest renderer events and backend logs.</p>
+            </div>
+            <div className="debug-panel-actions">
+              <button type="button" className="secondary" onClick={() => debugBus.clear()}>
+                Clear events
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFetchServerLogs()}
+                disabled={serverLogsLoading || !token}
+              >
+                {serverLogsLoading ? "Loading…" : "Refresh server logs"}
+              </button>
+            </div>
+          </header>
+          <section className="debug-section">
+            <h4>Renderer events</h4>
+            <div className="debug-event-list">
+              {sortedDebugEvents.length === 0 ? (
+                <p className="empty-state">No events captured yet.</p>
+              ) : (
+                sortedDebugEvents.map((event) => (
+                  <div key={event.id} className={`debug-event level-${event.level}`}>
+                    <div className="debug-event-meta">
+                      <span>{formatTimestamp(event.timestamp)}</span>
+                      <span>{event.level.toUpperCase()}</span>
+                      <span>{event.source}</span>
+                    </div>
+                    <p className="debug-event-message">{event.message}</p>
+                    {event.detail && <pre>{formatDebugDetail(event.detail)}</pre>}
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+          <section className="debug-section">
+            <h4>Server logs</h4>
+            {!token && <p className="helper-text">Sign in to retrieve server logs.</p>}
+            {serverLogsError && <p className="error-banner">{serverLogsError}</p>}
+            {serverLogs && (
+              <p className="helper-text">
+                Last updated {new Date(serverLogs.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                {serverLogs.viewer ? ` · viewed as ${serverLogs.viewer}` : ""}
+              </p>
+            )}
+            <pre className="server-log-block">
+              {serverLogsLoading
+                ? "Loading …"
+                : (serverLogs?.lines ?? []).join("\n") || "No log output captured yet."}
+            </pre>
+          </section>
+        </aside>
       )}
     </div>
   );

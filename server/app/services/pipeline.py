@@ -99,6 +99,10 @@ class InferencePipeline:
             raise ValueError(f"Unsupported Restormer mode '{mode}'")
 
         spec = RESTORMER_MODEL_LIBRARY[mode]
+        self._logger.info(
+            "Processing batch",
+            extra={"mode": mode, "passes": passes, "image_count": len(image_paths)},
+        )
         await self._emit(progress_callback, "loading_models", 0.05, f"Preparing {MODE_LABELS[mode]}")
         await self._ensure_session(spec)
         await self._emit(progress_callback, "loading_models", 0.08, "Weights ready")
@@ -157,6 +161,10 @@ class InferencePipeline:
 
         await self._emit(progress_callback, "completed", 0.98, "Batch ready for download")
         manifest = [{"filename": path.name, "path": str(path)} for path in saved_paths]
+        self._logger.info(
+            "Batch completed",
+            extra={"mode": mode, "output_files": len(saved_paths), "archive": str(archive_path)},
+        )
         return archive_path, manifest
 
     async def _emit(
@@ -174,8 +182,13 @@ class InferencePipeline:
             return
         model_path = Path(settings.models_dir) / spec.filename
         if not model_path.exists():
+            self._logger.info("Downloading model", extra={"model": spec.filename})
             await download_file(spec.url, model_path)
         providers, provider_options = self._select_providers(spec)
+        self._logger.info(
+            "Creating session",
+            extra={"model": spec.filename, "providers": providers},
+        )
         session = ort.InferenceSession(
             str(model_path),
             providers=providers,

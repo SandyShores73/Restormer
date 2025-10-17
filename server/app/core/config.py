@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
 from pydantic import AnyHttpUrl, BaseSettings, Field, validator
 
 from ..utils.database import DatabaseManager
+
+
+def _default_log_dir() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "RestormerServer" / "logs"
+    return Path("server/logs")
 
 
 class Settings(BaseSettings):
@@ -20,6 +27,10 @@ class Settings(BaseSettings):
     processed_dir: Path = Field(default_factory=lambda: Path("server/processed"))
     upload_dir: Path = Field(default_factory=lambda: Path("server/uploads"))
     database_url: str = Field("sqlite+aiosqlite:///server/restormer.db")
+    whitelist_seed_file: Path | None = Field(
+        default_factory=lambda: Path("seed_whitelist.json"),
+        env="RESTORMER_WHITELIST_SEED",
+    )
     secret_key: str = Field("change-me", env="RESTORMER_SECRET_KEY")
     access_token_expire_minutes: int = 60 * 24
     allowed_origins: Iterable[str] = Field(
@@ -35,6 +46,7 @@ class Settings(BaseSettings):
     dashboard_token: str | None = Field(
         default=None, env="RESTORMER_DASHBOARD_TOKEN"
     )
+    log_dir: Path = Field(default_factory=_default_log_dir, env="RESTORMER_LOG_DIR")
 
     class Config:
         env_file = ".env"
@@ -64,11 +76,17 @@ class Settings(BaseSettings):
             self.models_dir,
             self.processed_dir,
             self.upload_dir,
+            self.log_dir,
         ):
             Path(directory).mkdir(parents=True, exist_ok=True)
 
     def export(self) -> dict[str, Any]:
         return json.loads(self.json())
+
+    def resolve_path(self, path: Path | None) -> Path | None:
+        if path is None:
+            return None
+        return path if path.is_absolute() else self.project_root / path
 
 
 settings = Settings()

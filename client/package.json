@@ -1,11 +1,13 @@
 {
-  "name": "restormer-remote-client",
+  "name": "luma-studio-client",
   "private": true,
   "version": "1.0.0",
-  "description": "Cross-platform desktop client for the Restormer remote AI denoise service",
+  "description": "Cross-platform desktop client for the Luma remote AI denoise service",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "dev": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite dev --host 127.0.0.1 --port 5173",
+    "dev:electron": "wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
     "start": "electron .",
     "build": "vite build && electron-builder",
     "build:renderer": "vite build",
@@ -13,14 +15,14 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\""
   },
   "build": {
-    "appId": "com.restormer.client",
+    "appId": "com.luma.client",
     "mac": {
       "target": "dmg",
       "category": "public.app-category.photography"
     },
     "win": {
       "target": "nsis",
-      "publisherName": "Restormer"
+      "publisherName": "Luma"
     },
     "nsis": {
       "oneClick": false,
@@ -48,7 +50,9 @@
     "vite": "^5.1.0",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
-    "eslint-plugin-react-refresh": "^0.4.5"
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "concurrently": "^9.0.1",
+    "wait-on": "^7.2.0"
   },
   "packageManager": "npm@10.2.4"
 }

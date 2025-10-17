@@ -1,12 +1,14 @@
 """FastAPI server for AI-based denoise, detail refinement, and focus correction.
 
 The server exposes REST endpoints for authenticating users, uploading images,
-submitting processing jobs, and retrieving results.  Inference is executed with
+submitting processing jobs, and retrieving results. Inference is executed with
 ONNX Runtime's DirectML execution provider so that it can utilise the AMD Radeon
 RX 7800 XT GPU available on the target Windows 11 host.
 """
 
 from __future__ import annotations
+
+import logging
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,12 +18,22 @@ from fastapi.staticfiles import StaticFiles
 from .api import diagnostics, jobs, oauth, users
 from .auth.dependencies import get_current_active_user
 from .core.config import settings
+from . import models  # noqa: F401 - ensure SQLModel metadata is registered
+from .middleware.request_logging import RequestLoggingMiddleware
+from .services import whitelist
 from .schemas.tokens import Token
 from .schemas.users import UserRead
 from .services.auth import authenticate_user, create_access_token
+from .utils.logging import configure_logging
+
+log_dir = settings.resolve_path(settings.log_dir) or settings.log_dir
+configure_logging(log_dir)
+logger = logging.getLogger(__name__)
+logger.info("Logging initialised", extra={"log_dir": str(log_dir)})
 
 app = FastAPI(title="Restormer Remote AI Denoise", version="1.0.0")
 
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
@@ -37,9 +49,13 @@ app.mount("/dashboard", StaticFiles(directory=settings.dashboard_dir, html=True)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Initialise core services when the application starts."""
+
+    logger.info("Startup initialising")
     await settings.init_directories()
     await settings.database.create_db_and_tables()
     await settings.database.ensure_columns()
+    await whitelist.seed_from_file(settings.whitelist_seed_file)
+    logger.info("Startup complete")
 
 
 @app.post("/token", response_model=Token)
@@ -48,12 +64,14 @@ async def login_for_access_token(
 ) -> Token:
     user = await authenticate_user(form_data.username, form_data.password)
     if not user:
+        logger.warning("Authentication failed", extra={"email": form_data.username})
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = create_access_token(subject=user.id)
+    logger.info("Issued access token", extra={"user_id": user.id, "email": user.email})
     return Token(access_token=access_token)
 
 
@@ -61,6 +79,7 @@ async def login_for_access_token(
 async def read_current_user(
     current_user: UserRead = Depends(get_current_active_user),
 ) -> UserRead:
+    logger.debug("Profile requested", extra={"user_id": current_user.id})
     return current_user
 
 
@@ -68,6 +87,7 @@ async def read_current_user(
 async def health() -> dict[str, str]:
     """Simple readiness probe used by the desktop client during onboarding."""
 
+    logger.debug("Health probe", extra={"public_base_url": settings.normalised_public_base_url or "unset"})
     return {"status": "ok", "public_base_url": settings.normalised_public_base_url or "unset"}
 
 
