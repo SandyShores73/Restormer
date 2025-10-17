@@ -78,7 +78,7 @@ class Settings(BaseSettings):
             self.upload_dir,
             self.log_dir,
         ):
-            Path(directory).mkdir(parents=True, exist_ok=True)
+            Path(directory).expanduser().mkdir(parents=True, exist_ok=True)
 
     def export(self) -> dict[str, Any]:
         return json.loads(self.json())
@@ -86,7 +86,8 @@ class Settings(BaseSettings):
     def resolve_path(self, path: Path | None) -> Path | None:
         if path is None:
             return None
-        return path if path.is_absolute() else self.project_root / path
+        expanded = Path(path).expanduser()
+        return expanded if expanded.is_absolute() else self.project_root / expanded
 
 
 settings = Settings()

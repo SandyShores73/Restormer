@@ -260,6 +260,8 @@ const App: React.FC = () => {
     debug.info("server.url", "Server URL updated", { serverUrl });
   }, [serverUrl]);
 
+  useEffect(() => debugBus.subscribe(setDebugEvents), []);
+
   useEffect(() => {
     if (token) {
       setStoredValue("restormer.token", token);
