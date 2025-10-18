@@ -810,7 +810,7 @@ const DebugPanelOverlay: React.FC<DebugPanelProps> = ({
                     <span>{event.source}</span>
                   </div>
                   <p className="debug-event-message">{event.message}</p>
-                  {event.detail && <pre>{formatDebugDetail(event.detail)}</pre>}
+                  {event.detail != null ? <pre>{formatDebugDetail(event.detail)}</pre> : null}
                 </div>
               ))
             )}
@@ -852,11 +852,12 @@ const useJobsQuery = (
       return apiClient.fetchJobs(token);
     },
     enabled: phase === "dashboard" && Boolean(token),
-    refetchInterval: (data) => {
+    refetchInterval: (query: { state: { data: JobResponse[] | undefined } }) => {
       if (!token || phase !== "dashboard") {
         return false;
       }
-      if (data?.some((job) => job.status === "processing" || job.status === "queued")) {
+      const activeJobs = query.state.data ?? [];
+      if (activeJobs.some((job) => job.status === "processing" || job.status === "queued")) {
         return 3000;
       }
       return 12000;
@@ -1110,7 +1111,8 @@ const App: React.FC = () => {
     formData.append("passes", String(selectedPasses));
     trimmed.forEach((file, index) => {
       const blob = base64ToBlob(file.buffer);
-      formData.append(`file_${index}`, blob, file.name);
+      const fileName = file.filePath.split(/[/\\]/).pop() ?? `upload_${index + 1}`;
+      formData.append(`file_${index}`, blob, fileName);
     });
     await uploadMutation.mutateAsync(formData);
   }, [uploadMutation, token, selectedMode, selectedPasses]);
@@ -1200,7 +1202,13 @@ const App: React.FC = () => {
     if (jobs.length === 0) {
       return [] as { job: JobResponse; line: string; index: number }[];
     }
-    const tail = jobs.flatMap((job) => job.debug_lines.slice(-3).map((line, index) => ({ job, line, index })));
+    const tail = jobs.flatMap((job) =>
+      job.debug_lines.slice(-3).map((line, lineIndex): { job: JobResponse; line: string; index: number } => ({
+        job,
+        line,
+        index: lineIndex
+      }))
+    );
     return tail.slice(-15).reverse();
   }, [jobs]);
 
@@ -1264,11 +1272,6 @@ const App: React.FC = () => {
     },
     [apiClient, token]
   );
-
-  const jobsQueryState = {
-    ...jobsQuery,
-    data: jobs
-  };
 
   const uploadState: UploadPanelProps = {
     selectedMode,
@@ -1338,7 +1341,7 @@ const App: React.FC = () => {
               jobs={jobs}
               selectedJob={selectedJob}
               onSelectJob={setSelectedJobId}
-              jobsQueryState={jobsQueryState}
+              jobsQueryState={jobsQuery}
               latestDebug={latestDebug}
               token={token}
               onDownload={handleDownload}
