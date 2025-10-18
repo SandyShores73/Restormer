@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useMutation, useQuery } from "@tanstack/react-query";
+
 import {
+  DiagnosticsLogResponse,
   JobResponse,
   TokenResponse,
   UserProfile,
   WhitelistCheckResponse,
-  DiagnosticsLogResponse,
   createApiClient
 } from "./api";
-import { debug, debugBus, DebugEvent } from "./debug";
+import { DebugEvent, debug, debugBus } from "./debug";
 import lumaLogo from "./assets/luma-logo.svg";
 
 const defaultServerUrl =
@@ -25,17 +26,6 @@ type LoadingState = {
   message: string;
   progress: number;
   accent?: string;
-};
-
-type RegisterFormData = {
-  email: string;
-  full_name: string;
-  password: string;
-};
-
-type LoginFormData = {
-  email: string;
-  password: string;
 };
 
 const statusMeta: Record<string, { label: string; tone: string; icon: string }> = {
@@ -89,24 +79,24 @@ const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const formatPercent = (value: number) => `${Math.round(clamp(value) * 100)}%`;
 
 const base64ToBlob = (value: string) => {
-  const byteCharacters = atob(value);
-  const byteNumbers = new Array(byteCharacters.length)
-    .fill(0)
-    .map((_, idx) => byteCharacters.charCodeAt(idx));
-  const byteArray = new Uint8Array(byteNumbers);
-  return new Blob([byteArray.buffer]);
+  const bytes = atob(value);
+  const buffer = new Uint8Array(bytes.length);
+  for (let index = 0; index < bytes.length; index += 1) {
+    buffer[index] = bytes.charCodeAt(index);
+  }
+  return new Blob([buffer.buffer]);
 };
 
-const getStoredValue = (key: string): string | null => {
+const safeRead = (key: string): string | null => {
   try {
     return localStorage.getItem(key);
   } catch (error) {
-    console.warn("storage read failed", error);
+    debug.warn("storage.read", "Unable to access localStorage", error);
     return null;
   }
 };
 
-const setStoredValue = (key: string, value: string | null) => {
+const safeWrite = (key: string, value: string | null) => {
   try {
     if (value === null) {
       localStorage.removeItem(key);
@@ -114,7 +104,7 @@ const setStoredValue = (key: string, value: string | null) => {
       localStorage.setItem(key, value);
     }
   } catch (error) {
-    console.warn("storage write failed", error);
+    debug.warn("storage.write", "Unable to persist localStorage entry", { key, error });
   }
 };
 
@@ -129,7 +119,6 @@ const extractErrorMessage = (error: unknown, fallback: string) => {
   return error instanceof Error ? error.message : fallback;
 };
 
-
 const formatTimestamp = (value: number) =>
   new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
@@ -143,10 +132,11 @@ const formatDebugDetail = (detail: unknown) => {
   try {
     return JSON.stringify(detail, null, 2);
   } catch (error) {
-    console.warn("debug detail serialise failed", error);
+    debug.warn("debug.serialise", "Failed to serialise debug detail", error);
     return String(detail);
   }
 };
+
 const SplashScreen: React.FC<LoadingState> = ({ message, progress, accent }) => (
   <div className="splash-screen">
     <div className={`splash-card ${accent ?? ""}`}>
@@ -174,6 +164,678 @@ const ImageCue: React.FC<{ status: string }> = ({ status }) => {
     </div>
   );
 };
+
+type ServerConfiguratorProps = {
+  serverUrl: string;
+  inputValue: string;
+  error: string | null;
+  message: string;
+  busy: boolean;
+  onInput: (value: string) => void;
+  onReset: () => void;
+  onSubmit: () => void;
+};
+
+const ServerConfigurator: React.FC<ServerConfiguratorProps> = ({
+  serverUrl,
+  inputValue,
+  error,
+  message,
+  busy,
+  onInput,
+  onReset,
+  onSubmit
+}) => (
+  <div className="card configure-card">
+    <header>
+      <div>
+        <h2>Connect to your Luma server</h2>
+        <p className="card-subtitle">
+          Provide the HTTPS endpoint exposed to the public web. We automatically ping <code>/health</code> to confirm
+          connectivity.
+        </p>
+      </div>
+      <ImageCue status="queued" />
+    </header>
+    <label className="field">
+      <span>Public server URL</span>
+      <input
+        value={inputValue}
+        onChange={(event) => onInput(event.target.value)}
+        placeholder="https://denoise.example.com"
+        spellCheck={false}
+        autoFocus
+      />
+    </label>
+    {error && <p className="error-banner">{error}</p>}
+    {message && <p className="success-banner">{message}</p>}
+    <div className="card-actions">
+      <button type="button" className="secondary" onClick={onReset}>
+        Reset to {serverUrl}
+      </button>
+      <button type="button" onClick={onSubmit} disabled={busy}>
+        {busy ? "Checking…" : "Save & Continue"}
+      </button>
+    </div>
+  </div>
+);
+
+type OnboardingPanelProps = {
+  mode: OnboardingMode;
+  verification: WhitelistCheckResponse | null;
+  onboardingError: string | null;
+  newEmail: string;
+  newFullName: string;
+  newPassword: string;
+  confirmPassword: string;
+  loginEmail: string;
+  loginPassword: string;
+  onModeChange: (mode: OnboardingMode) => void;
+  onEmailChange: (value: string) => void;
+  onFullNameChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onConfirmPasswordChange: (value: string) => void;
+  onLoginEmailChange: (value: string) => void;
+  onLoginPasswordChange: (value: string) => void;
+  onVerifyAccess: () => Promise<void>;
+  onRegister: () => Promise<void>;
+  onLogin: () => Promise<void>;
+  verifying: boolean;
+  registering: boolean;
+  loggingIn: boolean;
+};
+
+const OnboardingPanel: React.FC<OnboardingPanelProps> = ({
+  mode,
+  verification,
+  onboardingError,
+  newEmail,
+  newFullName,
+  newPassword,
+  confirmPassword,
+  loginEmail,
+  loginPassword,
+  onModeChange,
+  onEmailChange,
+  onFullNameChange,
+  onPasswordChange,
+  onConfirmPasswordChange,
+  onLoginEmailChange,
+  onLoginPasswordChange,
+  onVerifyAccess,
+  onRegister,
+  onLogin,
+  verifying,
+  registering,
+  loggingIn
+}) => (
+  <div className="card onboarding-card">
+    <header>
+      <div>
+        <h2>Sign in to the restoration deck</h2>
+        <p className="card-subtitle">
+          Choose a username and password that we verify against the server whitelist before granting access.
+        </p>
+      </div>
+      <ImageCue status="processing" />
+    </header>
+    <div className="tabs">
+      <button
+        className={mode === "new" ? "active" : ""}
+        type="button"
+        onClick={() => onModeChange("new")}
+      >
+        I need an account
+      </button>
+      <button
+        className={mode === "returning" ? "active" : ""}
+        type="button"
+        onClick={() => onModeChange("returning")}
+      >
+        I already have access
+      </button>
+    </div>
+    {mode === "new" ? (
+      <div className="onboarding-grid">
+        <div className="field">
+          <span>Authorised email</span>
+          <input
+            value={newEmail}
+            onChange={(event) => onEmailChange(event.target.value)}
+            placeholder="you@studio.com"
+            spellCheck={false}
+          />
+          <button type="button" className="link-button" onClick={() => void onVerifyAccess()} disabled={verifying}>
+            {verifying ? "Checking whitelist…" : "Check whitelist"}
+          </button>
+          {verification && (
+            <span className={verification.allowed ? "badge-success" : "badge-muted"}>{verification.message}</span>
+          )}
+        </div>
+        <label className="field">
+          <span>Display name</span>
+          <input
+            value={newFullName}
+            onChange={(event) => onFullNameChange(event.target.value)}
+            placeholder="Ava Operator"
+          />
+        </label>
+        <label className="field">
+          <span>Password</span>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(event) => onPasswordChange(event.target.value)}
+            placeholder="Create a strong password"
+          />
+        </label>
+        <label className="field">
+          <span>Confirm password</span>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => onConfirmPasswordChange(event.target.value)}
+            placeholder="Repeat password"
+          />
+        </label>
+        <div className="card-actions">
+          <button type="button" onClick={() => void onRegister()} disabled={registering}>
+            {registering ? "Creating secure vault…" : "Create my account"}
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div className="onboarding-grid">
+        <label className="field">
+          <span>Email</span>
+          <input
+            value={loginEmail}
+            onChange={(event) => onLoginEmailChange(event.target.value)}
+            placeholder="you@studio.com"
+            spellCheck={false}
+          />
+        </label>
+        <label className="field">
+          <span>Password</span>
+          <input
+            type="password"
+            value={loginPassword}
+            onChange={(event) => onLoginPasswordChange(event.target.value)}
+            placeholder="Enter password"
+          />
+        </label>
+        <div className="card-actions">
+          <button type="button" onClick={() => void onLogin()} disabled={loggingIn}>
+            {loggingIn ? "Authenticating…" : "Sign in"}
+          </button>
+        </div>
+      </div>
+    )}
+    {onboardingError && <p className="error-banner">{onboardingError}</p>}
+    <p className="helper-text">
+      Tip: if you hit disk space issues during install, free ~2 GB for Electron dependencies before rerunning
+      <code>npm install</code>.
+    </p>
+  </div>
+);
+
+type UploadPanelProps = {
+  selectedMode: PipelineMode;
+  onModeChange: (value: PipelineMode) => void;
+  selectedPasses: number;
+  onPassChange: (value: number) => void;
+  onSelectFiles: () => void | Promise<void>;
+  uploadProgress: number;
+  uploadMessage: string | null;
+  uploadWarning: string | null;
+  uploadDisabled: boolean;
+};
+
+const UploadPanel: React.FC<UploadPanelProps> = ({
+  selectedMode,
+  onModeChange,
+  selectedPasses,
+  onPassChange,
+  onSelectFiles,
+  uploadProgress,
+  uploadMessage,
+  uploadWarning,
+  uploadDisabled
+}) => (
+  <article className="card upload-card">
+    <header>
+      <div>
+        <h2>Queue restoration batch</h2>
+        <p className="card-subtitle">Upload imagery to process with the GPU pipeline.</p>
+      </div>
+      <ImageCue status="processing" />
+    </header>
+    <div className="upload-grid">
+      <div>
+        <span className="field-label">Choose pipeline</span>
+        <div className="option-grid">
+          {pipelineOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`option-tile ${selectedMode === option.value ? "active" : ""}`}
+              onClick={() => onModeChange(option.value)}
+            >
+              <strong>{option.label}</strong>
+              <span>{option.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <span className="field-label">Passes</span>
+        <div className="pass-list">
+          {passOptions.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={selectedPasses === value ? "active" : ""}
+              onClick={() => onPassChange(value)}
+            >
+              {value}x
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+    <div className="card-actions">
+      <button type="button" onClick={onSelectFiles} disabled={uploadDisabled}>
+        {uploadDisabled ? "Uploading…" : "Select images"}
+      </button>
+    </div>
+    {uploadMessage && <p className="success-banner">{uploadMessage}</p>}
+    {uploadWarning && <p className="error-banner">{uploadWarning}</p>}
+    {uploadProgress > 0 && (
+      <div className="progress-track subtle">
+        <div className="progress-fill" style={{ width: formatPercent(uploadProgress) }} />
+      </div>
+    )}
+  </article>
+);
+
+type JobTimelineProps = {
+  jobs: JobResponse[];
+  selectedJobId: number | null;
+  onSelectJob: (jobId: number) => void;
+  jobsQueryState: ReturnType<typeof useJobsQuery>;
+  token: string | null;
+  onDownload: (jobId: number) => void;
+};
+
+const JobTimeline: React.FC<JobTimelineProps> = ({
+  jobs,
+  selectedJobId,
+  onSelectJob,
+  jobsQueryState,
+  token,
+  onDownload
+}) => {
+  if (jobsQueryState.isLoading) {
+    return (
+      <article className="card jobs-card">
+        <header>
+          <div>
+            <h2>Job timeline</h2>
+            <p className="card-subtitle">Monitor Luma batches with live telemetry.</p>
+          </div>
+          <ImageCue status="queued" />
+        </header>
+        <p className="empty-state">Loading jobs…</p>
+      </article>
+    );
+  }
+
+  if (jobsQueryState.isError) {
+    const message = jobsQueryState.error instanceof Error ? jobsQueryState.error.message : "Unknown error";
+    return (
+      <article className="card jobs-card">
+        <header>
+          <div>
+            <h2>Job timeline</h2>
+            <p className="card-subtitle">Monitor Luma batches with live telemetry.</p>
+          </div>
+          <ImageCue status="failed" />
+        </header>
+        <p className="error-banner">Unable to load jobs: {message}</p>
+      </article>
+    );
+  }
+
+  return (
+    <article className="card jobs-card">
+      <header>
+        <div>
+          <h2>Job timeline</h2>
+          <p className="card-subtitle">Monitor Luma batches with live telemetry.</p>
+        </div>
+        <ImageCue status="queued" />
+      </header>
+      <div className="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Stage</th>
+              <th>Function</th>
+              <th>Passes</th>
+              <th>Images</th>
+              <th>Progress</th>
+              <th>Filename</th>
+              <th>Download</th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="empty-state">
+                  No jobs yet — upload imagery to kick off the pipeline.
+                </td>
+              </tr>
+            ) : (
+              jobs.map((job) => {
+                const meta = statusMeta[job.status] ?? statusMeta.processing;
+                return (
+                  <tr
+                    key={job.id}
+                    className={selectedJobId === job.id ? "row-active" : ""}
+                    onClick={() => onSelectJob(job.id)}
+                  >
+                    <td>#{job.id}</td>
+                    <td>
+                      <div className={`status-chip ${meta.tone}`}>
+                        <span aria-hidden="true">{meta.icon}</span>
+                        {meta.label}
+                      </div>
+                    </td>
+                    <td>
+                      <span className="stage-label">{stageDescriptions[job.stage] ?? job.stage}</span>
+                    </td>
+                    <td>{job.mode_label}</td>
+                    <td>{job.passes}x</td>
+                    <td>{job.file_count}</td>
+                    <td className="progress-cell">
+                      <div className="progress-track subtle">
+                        <div className="progress-fill" style={{ width: formatPercent(job.progress) }} />
+                      </div>
+                      <span className="progress-label">{formatPercent(job.progress)}</span>
+                    </td>
+                    <td className="filename-cell">{job.filename}</td>
+                    <td>
+                      {job.downloadable ? (
+                        <div className="download-actions">
+                          <button type="button" onClick={() => token && onDownload(job.id)}>
+                            Save
+                          </button>
+                          {job.download_url && (
+                            <a href={job.download_url} target="_blank" rel="noreferrer">
+                              Open link
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="muted">Pending</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+};
+
+type DebugFeedProps = {
+  latestDebug: { job: JobResponse; line: string; index: number }[];
+};
+
+const DebugFeed: React.FC<DebugFeedProps> = ({ latestDebug }) => (
+  <article className="card debug-card">
+    <header>
+      <div>
+        <h2>Active debugging feed</h2>
+        <p className="card-subtitle">Live tail of GPU pipeline messages and automation cues.</p>
+      </div>
+      <ImageCue status="completed" />
+    </header>
+    <div className="debug-stream">
+      {latestDebug.length === 0 ? (
+        <p className="empty-state">Submit a job to populate debug telemetry.</p>
+      ) : (
+        latestDebug.map(({ job, line, index }) => (
+          <div key={`${job.id}-${index}-${line}`} className={`debug-line ${statusMeta[job.status]?.tone ?? ""}`}>
+            <span className="debug-job">Job #{job.id}</span>
+            <span className="debug-text">{line}</span>
+          </div>
+        ))
+      )}
+    </div>
+  </article>
+);
+
+type JobDetailProps = {
+  job: JobResponse | null;
+};
+
+const JobDetail: React.FC<JobDetailProps> = ({ job }) => (
+  <article className="card job-detail-card">
+    <header>
+      <div>
+        <h2>Job diagnostics</h2>
+        <p className="card-subtitle">Detailed debugging stream, including errors and recovery hints for the selected job.</p>
+      </div>
+      <ImageCue status={job?.status ?? "processing"} />
+    </header>
+    {job ? (
+      <div className="job-detail">
+        <h3>
+          Job #{job.id} · {stageDescriptions[job.stage] ?? job.stage}
+        </h3>
+        <div className="progress-track subtle">
+          <div className="progress-fill" style={{ width: formatPercent(job.progress) }} />
+        </div>
+        <span className="progress-label">{formatPercent(job.progress)}</span>
+        <div className="job-meta-grid">
+          <div>
+            <span className="meta-label">Function</span>
+            <span className="meta-value">{job.mode_label}</span>
+          </div>
+          <div>
+            <span className="meta-label">Passes</span>
+            <span className="meta-value">{job.passes}×</span>
+          </div>
+          <div>
+            <span className="meta-label">Images</span>
+            <span className="meta-value">{job.file_count}</span>
+          </div>
+        </div>
+        <div className="job-files-grid">
+          <div>
+            <h4>Input files</h4>
+            {job.input_files.length === 0 ? (
+              <p className="muted">Files pending upload.</p>
+            ) : (
+              <ul>
+                {job.input_files.map((name) => (
+                  <li key={`input-${job.id}-${name}`}>{name}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <h4>Output files</h4>
+            {job.output_files.length === 0 ? (
+              <p className="muted">Outputs become available once the batch finishes.</p>
+            ) : (
+              <ul>
+                {job.output_files.map((name) => (
+                  <li key={`output-${job.id}-${name}`}>{name}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+        {job.error_message && <p className="error-banner">{job.error_message}</p>}
+        <ul className="debug-list">
+          {job.debug_lines.map((line, index) => (
+            <li key={`${job.id}-${index}-${line}`}>{line}</li>
+          ))}
+        </ul>
+      </div>
+    ) : (
+      <p className="empty-state">Select a job from the timeline to inspect debug messages.</p>
+    )}
+  </article>
+);
+
+type DashboardProps = {
+  profile: UserProfile;
+  onLogout: () => void;
+  uploadState: UploadPanelProps;
+  jobs: JobResponse[];
+  selectedJob: JobResponse | null;
+  onSelectJob: (jobId: number) => void;
+  jobsQueryState: ReturnType<typeof useJobsQuery>;
+  latestDebug: { job: JobResponse; line: string; index: number }[];
+  token: string | null;
+  onDownload: (jobId: number) => void;
+};
+
+const Dashboard: React.FC<DashboardProps> = ({
+  profile,
+  onLogout,
+  uploadState,
+  jobs,
+  selectedJob,
+  onSelectJob,
+  jobsQueryState,
+  latestDebug,
+  token,
+  onDownload
+}) => (
+  <div className="dashboard">
+    <header className="dashboard-header">
+      <div>
+        <h1>✨ Luma control center</h1>
+        <p>
+          Welcome back, {profile.full_name}. Submit fresh captures for denoising or deburring and monitor the GPU pipeline in
+          real time.
+        </p>
+      </div>
+      <div className="profile-chip">
+        <span>{profile.full_name}</span>
+        <button type="button" className="secondary" onClick={onLogout}>
+          Sign out
+        </button>
+      </div>
+    </header>
+    <section className="dashboard-grid">
+      <UploadPanel {...uploadState} />
+      <DebugFeed latestDebug={latestDebug} />
+      <JobTimeline
+        jobs={jobs}
+        selectedJobId={selectedJob?.id ?? null}
+        onSelectJob={onSelectJob}
+        jobsQueryState={jobsQueryState}
+        token={token}
+        onDownload={onDownload}
+      />
+      <JobDetail job={selectedJob} />
+    </section>
+  </div>
+);
+
+type DebugPanelProps = {
+  open: boolean;
+  events: DebugEvent[];
+  onToggle: () => void;
+  onClear: () => void;
+  onFetchLogs: () => void;
+  loading: boolean;
+  token: string | null;
+  serverLogs: DiagnosticsLogResponse | null;
+  serverLogsError: string | null;
+};
+
+const DebugPanelOverlay: React.FC<DebugPanelProps> = ({
+  open,
+  events,
+  onToggle,
+  onClear,
+  onFetchLogs,
+  loading,
+  token,
+  serverLogs,
+  serverLogsError
+}) => (
+  <>
+    <button type="button" className="debug-toggle" onClick={onToggle}>
+      {open ? "Hide diagnostics" : "Show diagnostics"}
+    </button>
+    {open && (
+      <aside className="debug-panel">
+        <header className="debug-panel-header">
+          <div>
+            <h3>Diagnostics console</h3>
+            <p className="helper-text">Latest renderer events and backend logs.</p>
+          </div>
+          <div className="debug-panel-actions">
+            <button type="button" className="secondary" onClick={onClear}>
+              Clear events
+            </button>
+            <button type="button" onClick={onFetchLogs} disabled={loading || !token}>
+              {loading ? "Loading…" : "Refresh server logs"}
+            </button>
+          </div>
+        </header>
+        <section className="debug-section">
+          <h4>Renderer events</h4>
+          <div className="debug-event-list">
+            {events.length === 0 ? (
+              <p className="empty-state">No events captured yet.</p>
+            ) : (
+              events.map((event) => (
+                <div key={event.id} className={`debug-event level-${event.level}`}>
+                  <div className="debug-event-meta">
+                    <span>{formatTimestamp(event.timestamp)}</span>
+                    <span>{event.level.toUpperCase()}</span>
+                    <span>{event.source}</span>
+                  </div>
+                  <p className="debug-event-message">{event.message}</p>
+                  {event.detail && <pre>{formatDebugDetail(event.detail)}</pre>}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+        <section className="debug-section">
+          <h4>Server logs</h4>
+          {!token && <p className="helper-text">Sign in to retrieve server logs.</p>}
+          {serverLogsError && <p className="error-banner">{serverLogsError}</p>}
+          {serverLogs && (
+            <p className="helper-text">
+              Last updated {new Date(serverLogs.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              {serverLogs.viewer ? ` · viewed as ${serverLogs.viewer}` : ""}
+            </p>
+          )}
+          <pre className="server-log-block">
+            {loading
+              ? "Loading …"
+              : (serverLogs?.lines ?? []).join("\n") || "No log output captured yet."}
+          </pre>
+        </section>
+      </aside>
+    )}
+  </>
+);
 
 const useJobsQuery = (
   apiClient: ReturnType<typeof createApiClient>,
@@ -208,13 +870,13 @@ const App: React.FC = () => {
     progress: 0.18
   });
 
-  const [serverUrl, setServerUrl] = useState<string>(() => getStoredValue("restormer.serverUrl") ?? defaultServerUrl);
+  const [serverUrl, setServerUrl] = useState(() => safeRead("restormer.serverUrl") ?? defaultServerUrl);
   const [serverUrlInput, setServerUrlInput] = useState(serverUrl);
   const [serverUrlError, setServerUrlError] = useState<string | null>(null);
   const [serverProbeMessage, setServerProbeMessage] = useState<string>("");
   const [probeBusy, setProbeBusy] = useState(false);
 
-  const [token, setToken] = useState<string | null>(() => getStoredValue("restormer.token"));
+  const [token, setToken] = useState<string | null>(() => safeRead("restormer.token"));
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   const [onboardingMode, setOnboardingMode] = useState<OnboardingMode>("new");
@@ -255,20 +917,9 @@ const App: React.FC = () => {
     return jobsQuery.data;
   }, [jobsQuery.data]);
 
-  useEffect(() => {
-    setStoredValue("restormer.serverUrl", serverUrl);
-    debug.info("server.url", "Server URL updated", { serverUrl });
-  }, [serverUrl]);
-
-  useEffect(() => {
-    if (token) {
-      setStoredValue("restormer.token", token);
-      debug.info("auth.token", "Stored access token");
-    } else {
-      setStoredValue("restormer.token", null);
-      debug.info("auth.token", "Cleared access token");
-    }
-  }, [token]);
+  useEffect(() => safeWrite("restormer.serverUrl", serverUrl), [serverUrl]);
+  useEffect(() => safeWrite("restormer.token", token), [token]);
+  useEffect(() => debugBus.subscribe(setDebugEvents), []);
 
   useEffect(() => {
     if (phase !== "dashboard" || jobs.length === 0) {
@@ -284,17 +935,22 @@ const App: React.FC = () => {
   }, [jobs, phase, selectedJobId]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const initialise = async () => {
       debug.info("startup", "Initialising client state");
-      try {
-        setPhase("splash");
-        setLoadingState({ message: "Restoring preferences…", progress: 0.22 });
-        const storedServer = getStoredValue("restormer.serverUrl") ?? defaultServerUrl;
-        setServerUrl(storedServer);
-        setServerUrlInput(storedServer);
+      setPhase("splash");
+      setLoadingState({ message: "Restoring preferences…", progress: 0.22 });
+      const storedServer = safeRead("restormer.serverUrl") ?? defaultServerUrl;
+      if (cancelled) {
+        return;
+      }
+      setServerUrl(storedServer);
+      setServerUrlInput(storedServer);
 
-        const client = createApiClient(storedServer);
-        setLoadingState({ message: "Checking server availability…", progress: 0.45 });
+      const client = createApiClient(storedServer);
+      setLoadingState({ message: "Checking server availability…", progress: 0.45 });
+      try {
         await Promise.race([
           client.health(),
           new Promise((_, reject) =>
@@ -302,37 +958,53 @@ const App: React.FC = () => {
           )
         ]);
         debug.info("startup", "Server health verified", { server: storedServer });
-
-        const storedToken = getStoredValue("restormer.token");
-        if (storedToken) {
-          setLoadingState({ message: "Verifying session…", progress: 0.65 });
-          debug.info("auth.session", "Validating stored session");
-          try {
-            const me = await client.fetchProfile(storedToken);
-            setToken(storedToken);
-            setProfile(me);
-            debug.info("auth.session", "Restored existing session", { email: me.email });
-            setLoadingState({ message: `Welcome back, ${me.full_name}`, progress: 0.92 });
-            setPhase("dashboard");
-            return;
-          } catch (error) {
-            console.warn("Stored session invalid", error);
-            debug.warn("auth.session", "Stored session invalid", error);
-            setStoredValue("restormer.token", null);
-          }
-        }
-        setLoadingState({ message: "Let’s connect you to the studio", progress: 0.88 });
-        setPhase("onboard");
       } catch (error) {
-        console.warn("Bootstrap failed", error);
+        if (cancelled) {
+          return;
+        }
         debug.error("startup", "Failed during bootstrap", error);
         setServerUrlError("Could not reach the server. Please confirm the URL.");
         setPhase("configureServer");
+        return;
       }
+
+      if (cancelled) {
+        return;
+      }
+
+      const storedToken = safeRead("restormer.token");
+      if (storedToken) {
+        setLoadingState({ message: "Verifying session…", progress: 0.65 });
+        try {
+          const me = await client.fetchProfile(storedToken);
+          if (cancelled) {
+            return;
+          }
+          setToken(storedToken);
+          setProfile(me);
+          debug.info("auth.session", "Restored existing session", { email: me.email });
+          setLoadingState({ message: `Welcome back, ${me.full_name}`, progress: 0.92 });
+          setPhase("dashboard");
+          return;
+        } catch (error) {
+          debug.warn("auth.session", "Stored session invalid", error);
+          safeWrite("restormer.token", null);
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setLoadingState({ message: "Let’s connect you to the studio", progress: 0.88 });
+      setPhase("onboard");
     };
 
-    initialise();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void initialise();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const verifyWhitelistMutation = useMutation({
@@ -349,14 +1021,14 @@ const App: React.FC = () => {
     }
   });
 
-  const registerMutation = useMutation<TokenResponse, Error, RegisterFormData>({
+  const registerMutation = useMutation<TokenResponse, Error, { email: string; full_name: string; password: string }>({
     mutationFn: async (payload) => {
       await apiClient.registerUser(payload);
       return apiClient.loginWithPassword(payload.email, payload.password);
     }
   });
 
-  const loginMutation = useMutation<TokenResponse, Error, LoginFormData>({
+  const loginMutation = useMutation<TokenResponse, Error, { email: string; password: string }>({
     mutationFn: ({ email, password }) => apiClient.loginWithPassword(email, password)
   });
 
@@ -369,9 +1041,9 @@ const App: React.FC = () => {
         const me = await apiClient.fetchProfile(accessToken);
         setToken(accessToken);
         setProfile(me);
-        debug.info("auth.session", "Session established", { email: me.email });
         setLoadingState({ message: `Hello ${me.full_name}`, progress: 0.98 });
         setPhase("dashboard");
+        debug.info("auth.session", "Session established", { email: me.email });
       } catch (error) {
         debug.error("auth.session", "Failed to establish session", error);
         setLoadingState({ message: "Unable to finish sign-in", progress: 1, accent: "error" });
@@ -401,17 +1073,17 @@ const App: React.FC = () => {
       setUploadMessage("Upload complete. Monitoring job queue…");
       debug.info("upload", "Upload succeeded");
       void jobsQuery.refetch();
-      setTimeout(() => setUploadProgress(0), 700);
+      window.setTimeout(() => setUploadProgress(0), 700);
     },
     onError: (error: unknown) => {
-      console.error(error);
       const message = error instanceof Error ? error.message : "Upload failed";
       setUploadWarning(message);
       setUploadProgress(0);
+      debug.error("upload", "Upload failed", error);
     }
   });
 
-  const handleSelectFiles = async () => {
+  const handleSelectFiles = useCallback(async () => {
     if (uploadMutation.isPending || !token) {
       debug.warn("upload", "File selection blocked", { pending: uploadMutation.isPending, authenticated: Boolean(token) });
       return;
@@ -438,79 +1110,12 @@ const App: React.FC = () => {
     formData.append("passes", String(selectedPasses));
     trimmed.forEach((file, index) => {
       const blob = base64ToBlob(file.buffer);
-      const filename = file.filePath.split(/[\\/]/).pop() ?? `upload-${index}.png`;
-      formData.append("files", blob, filename);
+      formData.append(`file_${index}`, blob, file.name);
     });
     await uploadMutation.mutateAsync(formData);
-  };
+  }, [uploadMutation, token, selectedMode, selectedPasses]);
 
-  const fetchServerLogs = useCallback(
-    async (limit = 200, trigger: "manual" | "auto" = "manual") => {
-      if (!token) {
-        setServerLogs(null);
-        setServerLogsError("Sign in to access server logs.");
-        debug.warn("diagnostics", "Log fetch attempted without token", { trigger });
-        return;
-      }
-      try {
-        setServerLogsLoading(true);
-        setServerLogsError(null);
-        debug.info("diagnostics", "Requesting server logs", { limit, trigger });
-        const response = await apiClient.fetchDiagnosticsLogs(token, limit);
-        setServerLogs(response);
-        debug.info("diagnostics", "Received server logs", { line_count: response.line_count, updated_at: response.updated_at, trigger });
-      } catch (error) {
-        const message = extractErrorMessage(error, "Unable to fetch logs");
-        setServerLogsError(message);
-        debug.error("diagnostics", "Fetching server logs failed", { message, error, trigger });
-      } finally {
-        setServerLogsLoading(false);
-      }
-    },
-    [apiClient, token]
-  );
-
-  const handleFetchServerLogs = useCallback(() => fetchServerLogs(200, "manual"), [fetchServerLogs]);
-
-  const handleServerProbe = async () => {
-    try {
-      setProbeBusy(true);
-      setServerUrlError(null);
-      setServerProbeMessage("Pinging /health…");
-      const candidate = serverUrlInput.trim();
-      if (!candidate) {
-        throw new Error("Server URL is required");
-      }
-      // eslint-disable-next-line no-new
-      new URL(candidate);
-      debug.info("server.probe", "Pinging server", { candidate });
-      const probeClient = createApiClient(candidate);
-      const response = await probeClient.health();
-      debug.info("server.probe", "Server responded", { status: response.status, public: response.public_base_url });
-      setServerUrl(candidate);
-      debug.info("server.probe", "Server URL saved", { candidate });
-      if (token) {
-        setToken(null);
-        setProfile(null);
-        setStoredValue("restormer.token", null);
-      }
-      setServerProbeMessage(
-        `Connected to ${candidate} (public base: ${response.public_base_url || "not set"})`
-      );
-      setTimeout(() => {
-        setPhase("onboard");
-      }, 200);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to reach server";
-      debug.error("server.probe", "Failed to reach server", { message, error });
-      setServerUrlError(message);
-      setServerProbeMessage("");
-    } finally {
-      setProbeBusy(false);
-    }
-  };
-
-  const handleVerifyAccess = async () => {
+  const handleVerifyAccess = useCallback(async () => {
     setOnboardingError(null);
     if (!newEmail) {
       setOnboardingError("Enter the email you would like to register with.");
@@ -518,9 +1123,9 @@ const App: React.FC = () => {
     }
     debug.info("auth.whitelist", "Checking whitelist", { email: newEmail });
     await verifyWhitelistMutation.mutateAsync(newEmail);
-  };
+  }, [newEmail, verifyWhitelistMutation]);
 
-  const handleRegister = async () => {
+  const handleRegister = useCallback(async () => {
     setOnboardingError(null);
     debug.info("auth.register", "Attempting registration", { email: newEmail });
     if (!verification?.allowed) {
@@ -548,12 +1153,20 @@ const App: React.FC = () => {
       await handleAuthenticated(tokenResponse.access_token);
     } catch (error) {
       const message = extractErrorMessage(error, "Registration failed");
-      debug.error("auth.register", "Registration failed", { email: newEmail, message, error });
       setOnboardingError(message);
+      debug.error("auth.register", "Registration failed", { email: newEmail, message, error });
     }
-  };
+  }, [
+    confirmPassword,
+    handleAuthenticated,
+    newEmail,
+    newFullName,
+    newPassword,
+    registerMutation,
+    verification?.allowed
+  ]);
 
-  const handleLogin = async () => {
+  const handleLogin = useCallback(async () => {
     setOnboardingError(null);
     debug.info("auth.login", "Attempting login", { email: loginEmail });
     if (!loginEmail || !loginPassword) {
@@ -568,455 +1181,106 @@ const App: React.FC = () => {
       await handleAuthenticated(tokenResponse.access_token);
     } catch (error) {
       const message = extractErrorMessage(error, "Sign-in failed");
-      debug.error("auth.login", "Sign-in failed", { email: loginEmail, message, error });
       setOnboardingError(message);
+      debug.error("auth.login", "Sign-in failed", { email: loginEmail, message, error });
     }
-  };
+  }, [handleAuthenticated, loginEmail, loginMutation, loginPassword]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     debug.info("auth.logout", "Signing out user");
     setToken(null);
     setProfile(null);
-    setStoredValue("restormer.token", null);
+    safeWrite("restormer.token", null);
     setPhase("onboard");
-  };
+  }, []);
 
   const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
+
   const latestDebug = useMemo(() => {
     if (jobs.length === 0) {
       return [] as { job: JobResponse; line: string; index: number }[];
     }
-    const tail = jobs.flatMap((job) =>
-      job.debug_lines.slice(-3).map((line, index) => ({ job, line, index }))
-    );
+    const tail = jobs.flatMap((job) => job.debug_lines.slice(-3).map((line, index) => ({ job, line, index })));
     return tail.slice(-15).reverse();
   }, [jobs]);
+
   const sortedDebugEvents = useMemo(() => [...debugEvents].reverse(), [debugEvents]);
 
-  const renderServerConfigurator = () => (
-    <div className="card configure-card">
-      <header>
-        <div>
-          <h2>Connect to your Luma server</h2>
-          <p className="card-subtitle">
-            Provide the HTTPS endpoint exposed to the public web. We automatically ping <code>/health</code>
-            to confirm connectivity.
-          </p>
-        </div>
-        <ImageCue status="queued" />
-      </header>
-      <label className="field">
-        <span>Public server URL</span>
-        <input
-          value={serverUrlInput}
-          onChange={(event) => setServerUrlInput(event.target.value)}
-          placeholder="https://denoise.example.com"
-          spellCheck={false}
-          autoFocus
-        />
-      </label>
-      {serverUrlError && <p className="error-banner">{serverUrlError}</p>}
-      {serverProbeMessage && <p className="success-banner">{serverProbeMessage}</p>}
-      <div className="card-actions">
-        <button type="button" className="secondary" onClick={() => setServerUrlInput(serverUrl)}>
-          Reset
-        </button>
-        <button type="button" onClick={handleServerProbe} disabled={probeBusy}>
-          {probeBusy ? "Checking…" : "Save & Continue"}
-        </button>
-      </div>
-    </div>
+  const handleServerProbe = useCallback(async () => {
+    if (!serverUrlInput) {
+      setServerUrlError("Enter a server URL before continuing.");
+      return;
+    }
+    setProbeBusy(true);
+    setServerUrlError(null);
+    setServerProbeMessage("");
+    const trimmed = serverUrlInput.trim().replace(/\/+$/, "");
+    const client = createApiClient(trimmed);
+    try {
+      await Promise.race([
+        client.health(),
+        new Promise((_, reject) =>
+          window.setTimeout(() => reject(new Error("Health check timeout")), HEALTH_CHECK_TIMEOUT)
+        )
+      ]);
+      setServerUrl(trimmed);
+      setServerProbeMessage("Server verified. Proceed with onboarding.");
+      setPhase((current) => (current === "configureServer" ? "onboard" : current));
+      debug.info("server.url", "Server URL updated", { serverUrl: trimmed });
+    } catch (error) {
+      const message = extractErrorMessage(error, "Could not reach the server. Confirm the address.");
+      setServerUrlError(message);
+      debug.error("server.url", "Server probe failed", { serverUrl: trimmed, message, error });
+    } finally {
+      setProbeBusy(false);
+    }
+  }, [serverUrlInput]);
+
+  const handleFetchServerLogs = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    setServerLogsError(null);
+    setServerLogsLoading(true);
+    try {
+      const logs = await apiClient.fetchDiagnosticsLogs(token);
+      setServerLogs(logs);
+      debug.info("diagnostics.logs", "Fetched server logs", { lines: logs.lines.length });
+    } catch (error) {
+      const message = extractErrorMessage(error, "Unable to fetch server logs");
+      setServerLogsError(message);
+      debug.error("diagnostics.logs", "Failed to fetch server logs", { message, error });
+    } finally {
+      setServerLogsLoading(false);
+    }
+  }, [apiClient, token]);
+
+  const handleDownload = useCallback(
+    (jobId: number) => {
+      if (!token) {
+        return;
+      }
+      void apiClient.downloadProcessedImage(token, jobId);
+    },
+    [apiClient, token]
   );
 
-  const renderOnboarding = () => (
-    <div className="card onboarding-card">
-      <header>
-        <div>
-          <h2>Sign in to the restoration deck</h2>
-          <p className="card-subtitle">
-            Choose a username and password that we verify against the server whitelist before granting access.
-          </p>
-        </div>
-        <ImageCue status="processing" />
-      </header>
-      <div className="tabs">
-        <button
-          className={onboardingMode === "new" ? "active" : ""}
-          type="button"
-          onClick={() => {
-            setOnboardingMode("new");
-            setOnboardingError(null);
-          }}
-        >
-          I need an account
-        </button>
-        <button
-          className={onboardingMode === "returning" ? "active" : ""}
-          type="button"
-          onClick={() => {
-            setOnboardingMode("returning");
-            setOnboardingError(null);
-          }}
-        >
-          I already have access
-        </button>
-      </div>
-      {onboardingMode === "new" ? (
-        <div className="onboarding-grid">
-          <div className="field">
-            <span>Authorised email</span>
-            <input
-              value={newEmail}
-              onChange={(event) => setNewEmail(event.target.value)}
-              placeholder="you@studio.com"
-              spellCheck={false}
-            />
-            <button
-              type="button"
-              className="link-button"
-              onClick={handleVerifyAccess}
-              disabled={verifyWhitelistMutation.isPending}
-            >
-              {verifyWhitelistMutation.isPending ? "Checking whitelist…" : "Check whitelist"}
-            </button>
-            {verification && (
-              <span className={verification.allowed ? "badge-success" : "badge-muted"}>
-                {verification.message}
-              </span>
-            )}
-          </div>
-          <label className="field">
-            <span>Display name</span>
-            <input
-              value={newFullName}
-              onChange={(event) => setNewFullName(event.target.value)}
-              placeholder="Ava Operator"
-            />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              placeholder="Create a strong password"
-            />
-          </label>
-          <label className="field">
-            <span>Confirm password</span>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              placeholder="Repeat password"
-            />
-          </label>
-          <div className="card-actions">
-            <button type="button" onClick={handleRegister} disabled={registerMutation.isPending}>
-              {registerMutation.isPending ? "Creating secure vault…" : "Create my account"}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="onboarding-grid">
-          <label className="field">
-            <span>Email</span>
-            <input
-              value={loginEmail}
-              onChange={(event) => setLoginEmail(event.target.value)}
-              placeholder="you@studio.com"
-              spellCheck={false}
-            />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={loginPassword}
-              onChange={(event) => setLoginPassword(event.target.value)}
-              placeholder="Enter password"
-            />
-          </label>
-          <div className="card-actions">
-            <button type="button" onClick={handleLogin} disabled={loginMutation.isPending}>
-              {loginMutation.isPending ? "Authenticating…" : "Sign in"}
-            </button>
-          </div>
-        </div>
-      )}
-      {onboardingError && <p className="error-banner">{onboardingError}</p>}
-      <p className="helper-text">
-        Tip: if you hit disk space issues during install, free ~2 GB for Electron dependencies before rerunning
-        <code>npm install</code>.
-      </p>
-    </div>
-  );
+  const jobsQueryState = {
+    ...jobsQuery,
+    data: jobs
+  };
 
-  const renderDashboard = () => (
-    <div className="dashboard">
-      <header className="dashboard-header">
-        <div>
-          <h1>✨ Luma control center</h1>
-          <p>
-            Connected to <strong>{serverUrl}</strong> as {profile?.full_name ?? "anonymous operator"}. GPU jobs
-            auto-scale and stream debug telemetry in real time.
-          </p>
-        </div>
-        <div className="header-actions">
-          <button type="button" className="secondary" onClick={() => setPhase("configureServer")}>
-            Reconfigure server
-          </button>
-          <button type="button" className="ghost" onClick={handleLogout}>
-            Log out
-          </button>
-        </div>
-      </header>
-
-      <section className="dashboard-grid">
-        <article className="card actions-card">
-          <header>
-            <div>
-              <h2>Submit new imagery</h2>
-              <p className="card-subtitle">
-                We stream upload progress and GPU stage updates so you always know what the pipeline is doing.
-              </p>
-            </div>
-            <ImageCue status="processing" />
-          </header>
-          <div className="mode-controls">
-            <label className="field compact">
-              <span>Processing function</span>
-              <select
-                value={selectedMode}
-                onChange={(event) => setSelectedMode(event.target.value as PipelineMode)}
-              >
-                {pipelineOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field compact">
-              <span>Passes</span>
-              <select
-                value={selectedPasses}
-                onChange={(event) => setSelectedPasses(Number(event.target.value) || 1)}
-              >
-                {passOptions.map((value) => (
-                  <option key={value} value={value}>
-                    {value}x
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="helper-text">
-            {pipelineOptions.find((option) => option.value === selectedMode)?.description}
-          </p>
-          <div className="actions">
-            <button type="button" onClick={handleSelectFiles} disabled={uploadMutation.isPending || !token}>
-              {uploadMutation.isPending ? "Uploading…" : "Select files & upload"}
-            </button>
-            <button type="button" className="secondary" onClick={() => jobsQuery.refetch()}>
-              Refresh jobs
-            </button>
-          </div>
-          <div className="progress-track subtle">
-            <div className="progress-fill" style={{ width: formatPercent(uploadProgress) }} />
-          </div>
-          <span className="progress-label">{uploadMutation.isPending ? formatPercent(uploadProgress) : "Idle"}</span>
-          {uploadMessage && <p className="helper-text emphasis">{uploadMessage}</p>}
-          {uploadWarning && <p className="warning-banner">{uploadWarning}</p>}
-          {jobsQuery.isFetching && <span className="fetch-indicator">Syncing job telemetry…</span>}
-        </article>
-
-        <article className="card debug-card">
-          <header>
-            <div>
-              <h2>Active debugging feed</h2>
-              <p className="card-subtitle">Live tail of GPU pipeline messages and automation cues.</p>
-            </div>
-            <ImageCue status="completed" />
-          </header>
-          <div className="debug-stream">
-            {latestDebug.length === 0 ? (
-              <p className="empty-state">Submit a job to populate debug telemetry.</p>
-            ) : (
-              latestDebug.map(({ job, line, index }) => (
-                <div key={`${job.id}-${index}-${line}`} className={`debug-line ${statusMeta[job.status]?.tone ?? ""}`}>
-                  <span className="debug-job">Job #{job.id}</span>
-                  <span className="debug-text">{line}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </article>
-
-        <article className="card jobs-card">
-          <header>
-            <div>
-              <h2>Job timeline</h2>
-              <p className="card-subtitle">Monitor Luma batches with live telemetry.</p>
-            </div>
-            <ImageCue status="queued" />
-          </header>
-          {jobsQuery.isLoading ? (
-            <p className="empty-state">Loading jobs…</p>
-          ) : jobsQuery.isError ? (
-            <p className="error-banner">
-              Unable to load jobs: {jobsQuery.error instanceof Error ? jobsQuery.error.message : "Unknown error"}
-            </p>
-          ) : (
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Status</th>
-                    <th>Stage</th>
-                    <th>Function</th>
-                    <th>Passes</th>
-                    <th>Images</th>
-                    <th>Progress</th>
-                    <th>Filename</th>
-                    <th>Download</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.length === 0 && (
-                    <tr>
-                      <td colSpan={9} className="empty-state">
-                        No jobs yet — upload imagery to kick off the pipeline.
-                      </td>
-                    </tr>
-                  )}
-                  {jobs.map((job) => {
-                    const meta = statusMeta[job.status] ?? statusMeta.processing;
-                    return (
-                      <tr
-                        key={job.id}
-                        className={selectedJob?.id === job.id ? "row-active" : ""}
-                        onClick={() => setSelectedJobId(job.id)}
-                      >
-                        <td>#{job.id}</td>
-                        <td>
-                          <div className={`status-chip ${meta.tone}`}>
-                            <span aria-hidden="true">{meta.icon}</span>
-                            {meta.label}
-                          </div>
-                        </td>
-                        <td>
-                          <span className="stage-label">{stageDescriptions[job.stage] ?? job.stage}</span>
-                        </td>
-                        <td>{job.mode_label}</td>
-                        <td>{job.passes}x</td>
-                        <td>{job.file_count}</td>
-                        <td className="progress-cell">
-                          <div className="progress-track subtle">
-                            <div className="progress-fill" style={{ width: formatPercent(job.progress) }} />
-                          </div>
-                          <span className="progress-label">{formatPercent(job.progress)}</span>
-                        </td>
-                        <td className="filename-cell">{job.filename}</td>
-                        <td>
-                          {job.downloadable ? (
-                            <div className="download-actions">
-                              <button type="button" onClick={() => token && apiClient.downloadProcessedImage(token, job.id)}>
-                                Save
-                              </button>
-                              {job.download_url && (
-                                <a href={job.download_url} target="_blank" rel="noreferrer">
-                                  Open link
-                                </a>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="muted">Pending</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </article>
-
-        <article className="card job-detail-card">
-          <header>
-            <div>
-              <h2>Job diagnostics</h2>
-              <p className="card-subtitle">
-                Detailed debugging stream, including errors and recovery hints for the selected job.
-              </p>
-            </div>
-            <ImageCue status={selectedJob?.status ?? "processing"} />
-          </header>
-          {selectedJob ? (
-              <div className="job-detail">
-                <h3>
-                  Job #{selectedJob.id} · {stageDescriptions[selectedJob.stage] ?? selectedJob.stage}
-                </h3>
-                <div className="progress-track subtle">
-                  <div className="progress-fill" style={{ width: formatPercent(selectedJob.progress) }} />
-                </div>
-                <span className="progress-label">{formatPercent(selectedJob.progress)}</span>
-                <div className="job-meta-grid">
-                  <div>
-                    <span className="meta-label">Function</span>
-                    <span className="meta-value">{selectedJob.mode_label}</span>
-                  </div>
-                  <div>
-                    <span className="meta-label">Passes</span>
-                    <span className="meta-value">{selectedJob.passes}×</span>
-                  </div>
-                  <div>
-                    <span className="meta-label">Images</span>
-                    <span className="meta-value">{selectedJob.file_count}</span>
-                  </div>
-                </div>
-                <div className="job-files-grid">
-                  <div>
-                    <h4>Input files</h4>
-                    {selectedJob.input_files.length === 0 ? (
-                      <p className="muted">Files pending upload.</p>
-                    ) : (
-                      <ul>
-                        {selectedJob.input_files.map((name) => (
-                          <li key={`input-${selectedJob.id}-${name}`}>{name}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <div>
-                    <h4>Output files</h4>
-                    {selectedJob.output_files.length === 0 ? (
-                      <p className="muted">Outputs become available once the batch finishes.</p>
-                    ) : (
-                      <ul>
-                        {selectedJob.output_files.map((name) => (
-                          <li key={`output-${selectedJob.id}-${name}`}>{name}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-                {selectedJob.error_message && <p className="error-banner">{selectedJob.error_message}</p>}
-                <ul className="debug-list">
-                  {selectedJob.debug_lines.map((line, index) => (
-                    <li key={`${selectedJob.id}-${index}-${line}`}>{line}</li>
-                  ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="empty-state">Select a job from the timeline to inspect debug messages.</p>
-          )}
-        </article>
-      </section>
-    </div>
-  );
+  const uploadState: UploadPanelProps = {
+    selectedMode,
+    onModeChange: setSelectedMode,
+    selectedPasses,
+    onPassChange: setSelectedPasses,
+    onSelectFiles: handleSelectFiles,
+    uploadProgress,
+    uploadMessage,
+    uploadWarning,
+    uploadDisabled: uploadMutation.isPending
+  };
 
   return (
     <div className="app-root">
@@ -1025,83 +1289,77 @@ const App: React.FC = () => {
         <SplashScreen {...loadingState} />
       ) : (
         <div className="app-shell">
-          {phase === "configureServer" && renderServerConfigurator()}
-          {phase === "onboard" && (
-            <>
-              {renderServerConfigurator()}
-              {renderOnboarding()}
-            </>
+          {(phase === "configureServer" || phase === "onboard") && (
+            <ServerConfigurator
+              serverUrl={serverUrl}
+              inputValue={serverUrlInput}
+              error={serverUrlError}
+              message={serverProbeMessage}
+              busy={probeBusy}
+              onInput={setServerUrlInput}
+              onReset={() => setServerUrlInput(serverUrl)}
+              onSubmit={handleServerProbe}
+            />
           )}
-          {phase === "dashboard" && renderDashboard()}
+          {phase === "onboard" && (
+            <OnboardingPanel
+              mode={onboardingMode}
+              verification={verification}
+              onboardingError={onboardingError}
+              newEmail={newEmail}
+              newFullName={newFullName}
+              newPassword={newPassword}
+              confirmPassword={confirmPassword}
+              loginEmail={loginEmail}
+              loginPassword={loginPassword}
+              onModeChange={(value) => {
+                setOnboardingMode(value);
+                setOnboardingError(null);
+              }}
+              onEmailChange={setNewEmail}
+              onFullNameChange={setNewFullName}
+              onPasswordChange={setNewPassword}
+              onConfirmPasswordChange={setConfirmPassword}
+              onLoginEmailChange={setLoginEmail}
+              onLoginPasswordChange={setLoginPassword}
+              onVerifyAccess={handleVerifyAccess}
+              onRegister={handleRegister}
+              onLogin={handleLogin}
+              verifying={verifyWhitelistMutation.isPending}
+              registering={registerMutation.isPending}
+              loggingIn={loginMutation.isPending}
+            />
+          )}
+          {phase === "dashboard" && profile && (
+            <Dashboard
+              profile={profile}
+              onLogout={handleLogout}
+              uploadState={uploadState}
+              jobs={jobs}
+              selectedJob={selectedJob}
+              onSelectJob={setSelectedJobId}
+              jobsQueryState={jobsQueryState}
+              latestDebug={latestDebug}
+              token={token}
+              onDownload={handleDownload}
+            />
+          )}
         </div>
       )}
-      <button
-        type="button"
-        className="debug-toggle"
-        onClick={() => setDebugPanelOpen((value) => !value)}
-      >
-        {debugPanelOpen ? "Hide diagnostics" : "Show diagnostics"}
-      </button>
-      {debugPanelOpen && (
-        <aside className="debug-panel">
-          <header className="debug-panel-header">
-            <div>
-              <h3>Diagnostics console</h3>
-              <p className="helper-text">Latest renderer events and backend logs.</p>
-            </div>
-            <div className="debug-panel-actions">
-              <button type="button" className="secondary" onClick={() => debugBus.clear()}>
-                Clear events
-              </button>
-              <button
-                type="button"
-                onClick={() => handleFetchServerLogs()}
-                disabled={serverLogsLoading || !token}
-              >
-                {serverLogsLoading ? "Loading…" : "Refresh server logs"}
-              </button>
-            </div>
-          </header>
-          <section className="debug-section">
-            <h4>Renderer events</h4>
-            <div className="debug-event-list">
-              {sortedDebugEvents.length === 0 ? (
-                <p className="empty-state">No events captured yet.</p>
-              ) : (
-                sortedDebugEvents.map((event) => (
-                  <div key={event.id} className={`debug-event level-${event.level}`}>
-                    <div className="debug-event-meta">
-                      <span>{formatTimestamp(event.timestamp)}</span>
-                      <span>{event.level.toUpperCase()}</span>
-                      <span>{event.source}</span>
-                    </div>
-                    <p className="debug-event-message">{event.message}</p>
-                    {event.detail && <pre>{formatDebugDetail(event.detail)}</pre>}
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-          <section className="debug-section">
-            <h4>Server logs</h4>
-            {!token && <p className="helper-text">Sign in to retrieve server logs.</p>}
-            {serverLogsError && <p className="error-banner">{serverLogsError}</p>}
-            {serverLogs && (
-              <p className="helper-text">
-                Last updated {new Date(serverLogs.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                {serverLogs.viewer ? ` · viewed as ${serverLogs.viewer}` : ""}
-              </p>
-            )}
-            <pre className="server-log-block">
-              {serverLogsLoading
-                ? "Loading …"
-                : (serverLogs?.lines ?? []).join("\n") || "No log output captured yet."}
-            </pre>
-          </section>
-        </aside>
-      )}
+      <DebugPanelOverlay
+        open={debugPanelOpen}
+        events={sortedDebugEvents}
+        onToggle={() => setDebugPanelOpen((value) => !value)}
+        onClear={() => debugBus.clear()}
+        onFetchLogs={handleFetchServerLogs}
+        loading={serverLogsLoading}
+        token={token}
+        serverLogs={serverLogs}
+        serverLogsError={serverLogsError}
+      />
     </div>
   );
 };
 
 export default App;
+

@@ -6,11 +6,20 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import "./styles.css";
 
 const client = new QueryClient();
+const container = document.getElementById("root");
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={client}>
-      <App />
-    </QueryClientProvider>
-  </React.StrictMode>
+if (!container) {
+  throw new Error("Failed to locate root element");
+}
+
+const root = ReactDOM.createRoot(container);
+
+root.render(
+  <ErrorBoundary>
+    <React.StrictMode>
+      <QueryClientProvider client={client}>
+        <App />
+      </QueryClientProvider>
+    </React.StrictMode>
+  </ErrorBoundary>
 );
