@@ -1,0 +1,16 @@
+# Changelog
+
+## Unreleased
+
+- Added `phoneagentd`, a lightweight authenticated tailnet gateway for the
+  existing PhoneAgent localhost JSON-RPC bridge.
+- Added low-context local-model primitives for OpenAI-compatible chat providers,
+  strict action DSL parsing, compact session state, and safety review helpers.
+- Added token setup script, example environment file, tests with a mocked RPC
+  bridge, and security/Tailscale documentation.
+- Documented iOS controller, Dynamic Island/Live Activity, and deep-link defaults
+  for application in the actual PhoneAgent Xcode project.
+- Added natural-break voice interjection API/policy and low-latency profile
+  toggles with explicit speed, battery, and privacy trade-offs.
+- Replaced the broken Electron patch artifacts with a packageable PhoneAgent Host
+  Controller macOS app shell.
