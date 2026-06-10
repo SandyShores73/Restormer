@@ -1,72 +1,59 @@
- (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
-diff --git a//dev/null b/client/src/api.ts
-index 0000000000000000000000000000000000000000..1df93fe579b15fdbaa4d7c8741e19a53f6f57184 100644
---- a//dev/null
-+++ b/client/src/api.ts
-@@ -0,0 +1,63 @@
-+import axios from "axios";
-+
-+const API_BASE = process.env.VITE_API_BASE ?? "http://localhost:8000";
-+
-+export interface TokenResponse {
-+  access_token: string;
-+  token_type: string;
-+}
-+
-+export interface JobResponse {
-+  id: number;
-+  status: string;
-+  output_path: string | null;
-+  error_message: string | null;
-+}
-+
-+export const loginWithPassword = async (username: string, password: string): Promise<TokenResponse> => {
-+  const params = new URLSearchParams();
-+  params.append("username", username);
-+  params.append("password", password);
-+  params.append("grant_type", "password");
-+  const { data } = await axios.post(`${API_BASE}/token`, params, {
-+    headers: { "Content-Type": "application/x-www-form-urlencoded" }
-+  });
-+  return data;
-+};
-+
-+export const loginWithGoogle = async (idToken: string): Promise<TokenResponse> => {
-+  const { data } = await axios.post(`${API_BASE}/oauth/google`, { token: idToken });
-+  return data;
-+};
-+
-+export const uploadJob = async ({ token, data }: { token: string; data: FormData }) => {
-+  await axios.post(`${API_BASE}/jobs`, data, {
-+    headers: {
-+      Authorization: `Bearer ${token}`,
-+      "Content-Type": "multipart/form-data"
-+    }
-+  });
-+};
-+
-+export const fetchJobs = async (token: string): Promise<JobResponse[]> => {
-+  const { data } = await axios.get(`${API_BASE}/jobs`, {
-+    headers: { Authorization: `Bearer ${token}` }
-+  });
-+  return data;
-+};
-+
-+export const downloadProcessedImage = async (token: string, jobId: number) => {
-+  const { data, headers } = await axios.get(`${API_BASE}/jobs/${jobId}/download`, {
-+    headers: { Authorization: `Bearer ${token}` },
-+    responseType: "blob"
-+  });
-+  const disposition = headers["content-disposition"];
-+  const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
-+  const filename = filenameMatch ? filenameMatch[1] : `processed-${jobId}.png`;
-+  const url = window.URL.createObjectURL(new Blob([data]));
-+  const a = document.createElement("a");
-+  a.href = url;
-+  a.download = filename;
-+  a.click();
-+  window.URL.revokeObjectURL(url);
-+};
- 
-EOF
-)
+export type GatewayStatus = {
+  status: string;
+  bridge: string;
+  latency_options?: Record<string, unknown>;
+  latency_descriptions?: Record<string, string>;
+  voice_break_mode?: boolean;
+};
+
+export type CommandRequest = {
+  action: string;
+  params: Record<string, unknown>;
+  reason: string;
+  risk: "low" | "medium" | "high";
+  requires_approval: boolean;
+};
+
+export type InterjectionRequest = {
+  question: string;
+  reason: string;
+  urgency: "low" | "normal" | "urgent";
+  max_listen_seconds: number;
+  silence_ms: number;
+  transcript_mode: "controller_only" | "local_only" | "off";
+};
+
+const gatewayFetch = async <T,>(baseUrl: string, token: string, path: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers ?? {})
+    }
+  });
+  const text = await response.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    throw new Error(body.error ?? `Gateway request failed with ${response.status}`);
+  }
+  return body as T;
+};
+
+export const getHealth = (baseUrl: string, token: string) =>
+  gatewayFetch<{ status: string; uptime_s: number }>(baseUrl, token, "/health");
+
+export const getStatus = (baseUrl: string, token: string) =>
+  gatewayFetch<GatewayStatus>(baseUrl, token, "/v1/status");
+
+export const sendCommand = (baseUrl: string, token: string, command: CommandRequest) =>
+  gatewayFetch<Record<string, unknown>>(baseUrl, token, "/v1/commands", {
+    method: "POST",
+    body: JSON.stringify(command)
+  });
+
+export const createInterjection = (baseUrl: string, token: string, request: InterjectionRequest) =>
+  gatewayFetch<Record<string, unknown>>(baseUrl, token, "/v1/interjections", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
