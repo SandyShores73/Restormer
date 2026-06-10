@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PhoneAgent Host Controller</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero card glow">
+        <p class="eyebrow">PhoneAgent host controller</p>
+        <h1>Secure tailnet control, faster clicks, natural-break questions.</h1>
+        <p>Configure the Mac gateway, choose speed/privacy trade-offs, and let the iPhone controller briefly use its microphone when the agent needs to interject at a natural pause.</p>
+        <div id="status" class="status-pill">Not connected</div>
+      </section>
+      <section class="grid two">
+        <div class="card">
+          <h2>Gateway</h2>
+          <label>Gateway URL</label><input id="gatewayUrl" value="http://127.0.0.1:8788" />
+          <label>Bearer token</label><input id="token" type="password" />
+          <div class="row"><button id="test">Test connection</button><button id="save" class="secondary">Save locally</button></div>
+          <p class="hint">Use Tailscale Serve for remote access. Do not expose the raw JSON-RPC bridge or use Funnel.</p>
+        </div>
+        <div class="card">
+          <h2>Latency mode</h2>
+          <select id="profile"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="ultra_low">Ultra-low latency</option></select>
+          <p id="profileDescription" class="hint"></p>
+          <label class="check"><input id="prefetchTree" type="checkbox" checked /> Prefetch tree</label>
+          <label class="check"><input id="autoScreenshot" type="checkbox" /> Auto-send screenshot thumbnail locally</label>
+          <label class="check"><input id="voiceBreak" type="checkbox" checked /> Enable voice natural-break portal</label>
+          <div class="tradeoffs"><div class="tradeoff on"><strong>Prefetch accessibility tree</strong><span>Faster first click decisions with a small local RPC cost.</span></div><div class="tradeoff"><strong>Auto screenshot thumbnail</strong><span>Avoids an extra round trip for visual tasks; costs battery and captures screen pixels locally.</span></div><div class="tradeoff on"><strong>Voice natural-break portal</strong><span>iPhone mic opens only while waiting for a pause, then closes after interjection.</span></div></div>
+        </div>
+      </section>
+      <section class="grid two">
+        <div class="card">
+          <h2>Quick actions</h2>
+          <div class="row wrap"><button data-command="messages" class="secondary">Open Messages</button><button data-command="tree" class="secondary">Screen summary</button><button data-command="stop" class="secondary">Stop</button><button data-command="approve" class="secondary">Approve pending</button></div>
+          <label>Raw command JSON</label><textarea id="command"></textarea><button id="send">Send command</button>
+        </div>
+        <div class="card">
+          <h2>Natural-break voice portal</h2>
+          <p class="hint">Request that the iPhone controller listen for speech activity, wait for silence, interject, then shut the microphone path off to save battery.</p>
+          <label>Question to interject</label><textarea id="question">I need your approval before sending this message.</textarea>
+          <label>Silence threshold: <span id="silenceLabel">900</span> ms</label><input id="silence" type="range" min="400" max="1800" value="900" />
+          <button id="voice">Open voice portal request</button>
+        </div>
+      </section>
+      <section class="card output"><h2>Gateway response</h2><pre id="output">No response yet.</pre></section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
